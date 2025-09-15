@@ -283,10 +283,14 @@ loca2_mwbm_processor <- function(nc_path, output_dir, points, var = "runoff") {
 #' Process raw grid data to calculate mean runoff statistics
 #' 
 #' @param f file path to processed runoff CSV file
+#' @param water_supplies sf object with water supply locations
 #' 
-process_raw_grid_data <- function(f) {
+process_raw_grid_data <- function(f, water_supplies) {
   
   raw <- fread(f)
+  
+  #filter to water supplies of interest
+  raw <- raw %>% filter(wsd_source_id %in% water_supplies$wsd_source_id)
   
   # 1) annual totals per point/model
   annual_point <- raw[

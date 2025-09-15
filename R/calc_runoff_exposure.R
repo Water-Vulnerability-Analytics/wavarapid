@@ -63,7 +63,7 @@ calc_runoff_exposure <- function(water_supplies,
   }
   
   # Process the extracted data files
-  mean_data <- map(files, ~process_raw_grid_data(.x))
+  mean_data <- map(files, ~process_raw_grid_data(.x, water_supplies = water_supplies))
   
   final_data <- mean_data %>% bind_rows()
   
