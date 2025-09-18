@@ -27,15 +27,12 @@ calc_runoff_exposure <- function(water_supplies,
     "save is TRUE but output_dir not provided" = !save || !is.null(output_dir)
   )
   
-
-  
   # Start timing
   if (verbose) {
     message("Starting runoff exposure calculation...")
     start_time <- Sys.time()
   }
   
- 
   if(rerun_extraction == TRUE) {
     
     # process all NetCDF files by applying nc_processor function to each file with water supply points
@@ -60,10 +57,21 @@ calc_runoff_exposure <- function(water_supplies,
   
   if (verbose) {
     message("Processing ", length(files), " runoff files")
+    
+    # Create progress bar for file processing
+    pb <- progress::progress_bar$new(
+      format = "Processing runoff files [:bar] :percent (:current/:total) ETA: :eta",
+      total = length(files),
+      clear = FALSE,
+      width = 80
+    )
   }
   
-  # Process the extracted data files
-  mean_data <- map(files, ~process_raw_grid_data(.x, water_supplies = water_supplies))
+  # Process the extracted data files with progress bar
+  mean_data <- map(files, ~{
+    if (verbose) pb$tick()
+    process_raw_grid_data(.x, water_supplies = water_supplies)
+  })
   
   final_data <- mean_data %>% bind_rows()
   
@@ -90,7 +98,13 @@ calc_runoff_exposure <- function(water_supplies,
            diff_from_p10 = abs(percent_change - p10)) %>%
     filter(diff_from_p10 == min(diff_from_p10, na.rm = TRUE)) %>%
     slice(1) %>%  # Take first if multiple ties
-    ungroup()
+    ungroup() %>%
+    # Keep original column names
+    transmute(
+      wsd_source_id,
+      park_unit,
+      raw_runoff_change_p10 = percent_change
+    )
   
   p50_values <- runoff_change %>%
     group_by(park_unit, wsd_source_id) %>%
@@ -98,7 +112,12 @@ calc_runoff_exposure <- function(water_supplies,
            diff_from_p50 = abs(percent_change - p50)) %>%
     filter(diff_from_p50 == min(diff_from_p50, na.rm = TRUE)) %>%
     slice(1) %>%  # Take first if multiple ties
-    ungroup()
+    ungroup() %>%
+    transmute(
+      wsd_source_id,
+      park_unit,
+      raw_runoff_change_p50 = percent_change
+    )
   
   p90_values <- runoff_change %>%
     group_by(park_unit, wsd_source_id) %>%
@@ -106,7 +125,12 @@ calc_runoff_exposure <- function(water_supplies,
            diff_from_p90 = abs(percent_change - p90)) %>%
     filter(diff_from_p90 == min(diff_from_p90, na.rm = TRUE)) %>%
     slice(1) %>%  # Take first if multiple ties
-    ungroup()
+    ungroup() %>%
+    transmute(
+      wsd_source_id,
+      park_unit,
+      raw_runoff_change_p90 = percent_change
+    )
   
   # Calculate fraction of models showing decrease
   model_fractions <- runoff_change %>%
@@ -125,7 +149,9 @@ calc_runoff_exposure <- function(water_supplies,
     left_join(
       water_supplies %>% 
         st_drop_geometry() %>% 
-        select(wsd_source_id, park_unit, park_name)) %>%
+        select(wsd_source_id, park_unit, park_name),
+      by = c("wsd_source_id", "park_unit")
+    ) %>%
     # Add standardized indicators using helper function
     add_standardized_indicators("raw_runoff_change") %>%
     add_standardized_indicators("raw_models_showing_decrease") %>%
