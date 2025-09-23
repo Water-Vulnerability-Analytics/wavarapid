@@ -5,7 +5,8 @@
 #' supply areas.
 #' 
 #' @param water_supplies sf object with water supply locations
-#' @param whp_raster terra raster of wildfire hazard potential
+#' @param whp_raster file path to wildfire hazard potential raster
+#' @param whp_type either "raw" for the raw continuous raster or "cat" for the categorized raster
 #' @param save logical, whether to save output
 #' @param output_dir character, directory path for saving files
 #' @param verbose logical, whether to show progress messages
@@ -14,6 +15,7 @@
 #' 
 calc_fire_sensitivity <- function(water_supplies,
                                   whp_raster,
+                                  whp_type,
                                   save = FALSE,
                                   output_dir = NULL,
                                   verbose = TRUE) {
@@ -21,9 +23,18 @@ calc_fire_sensitivity <- function(water_supplies,
   # Input validation
   stopifnot(
     "water_supplies must be an sf object" = inherits(water_supplies, "sf"),
-    "whp_raster must be a terra raster" = inherits(whp_raster, "SpatRaster"),
+    #"whp_raster must be a terra raster" = inherits(whp_raster, "SpatRaster"),
     "save is TRUE but output_dir not provided" = !save || !is.null(output_dir)
   )
+  
+  whp_raster <- terra::rast(whp_raster)
+  
+  # if using the categorical layer, classify here to use binary layer in iteration below
+  if(whp_type == "cat") {
+    ## classify raster
+    binary <- terra::ifel(whp_raster %in% 4:5, 1, 0)
+  }
+  
   
   # Start timing
   start_time <- Sys.time()
@@ -42,22 +53,54 @@ calc_fire_sensitivity <- function(water_supplies,
   results <- map_dfr(seq_len(nrow(water_supplies)), function(i) {
     if (verbose) pb$tick()
     
-    # Calculate area-weighted mean WHP for water supply buffer
-    ws_whp <- terra::zonal(
-      whp_raster,
-      terra::vect(st_transform(water_supplies[i, ], crs(whp_raster))),
-      fun = "mean",
-      weights = TRUE,
-      na.rm = TRUE
-    )
+    # RAW WHP
     
-    # Create results tibble
-    tibble(
-      wsd_source_id = water_supplies[i, ]$wsd_source_id,
-      park_unit = water_supplies[i, ]$park_unit,
-      park_name = water_supplies[i, ]$park_name,
-      raw_wildfire_hazard_mean = pull(ws_whp)
-    )
+    if(whp_type == "raw") {
+      # Calculate area-weighted mean WHP for water supply buffer
+      ws_whp <- terra::zonal(
+        whp_raster,
+        terra::vect(st_transform(water_supplies[i, ], crs(whp_raster))),
+        fun = "mean",
+        weights = TRUE,
+        na.rm = TRUE
+      )
+      
+      # Create results tibble
+      tibble(
+        wsd_source_id = water_supplies[i, ]$wsd_source_id,
+        park_unit = water_supplies[i, ]$park_unit,
+        park_name = water_supplies[i, ]$park_name,
+        raw_wildfire_hazard_mean = pull(ws_whp)
+      )
+      
+    } else {
+      # Calculate area-weighted % high/very high WHP category for water supply buffer
+      
+      ## pull out park shapefile and transform
+      ws <- terra::vect(st_transform(water_supplies[i, ], crs(whp_raster)))
+      
+      # Extract values with cell overlap fractions
+      extracted <- terra::extract(binary, ws, weights = TRUE, exact = TRUE)
+      
+      # weights column = fraction of cell in polygon
+      total_weight <- sum(extracted$weight, na.rm = TRUE)
+      coverage_weight <- sum(extracted$weight[extracted$class_desc == 1], na.rm = TRUE)
+      
+      percent <- (coverage_weight / total_weight) * 100
+      
+      # Create results tibble
+      tibble(
+        wsd_source_id = water_supplies[i, ]$wsd_source_id,
+        park_unit = water_supplies[i, ]$park_unit,
+        park_name = water_supplies[i, ]$park_name,
+        raw_wildfire_hazard_mean = percent
+      )
+      
+      
+    }
+   
+    
+   
   })
   
   # Calculate standardized indicators using helper function  
