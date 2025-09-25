@@ -29,6 +29,10 @@ calc_fire_exposure <- function(water_supplies,
   # Start timing
   start_time <- Sys.time()
   
+  # convert both objects to terra for faster filtering
+  pyrome_data <- vect(pyrome_data)
+  water_supplies <- vect(water_supplies)
+  
   # Create progress bar
   if (verbose) {
     pb <- progress::progress_bar$new(
@@ -44,8 +48,9 @@ calc_fire_exposure <- function(water_supplies,
     if (verbose) pb$tick()
     
     # Get water supply pyrome
-    ws_pyrome <- pyrome_data %>% 
-      st_filter(water_supplies[i, ])
+    # ws_pyrome <- pyrome_data %>% 
+    #   st_filter(water_supplies[i, ])
+    ws_pyrome <- pyrome_data[relate(pyrome_data, water_supplies[i,], "intersects"), ]
     
     # Extract fire probability data for this pyrome
     fp_data <- fire_prob_data %>% 

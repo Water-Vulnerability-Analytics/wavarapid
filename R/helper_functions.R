@@ -33,8 +33,9 @@ add_standardized_indicators <- function(data, prefix) {
 #' @param nc_path path to NetCDF file
 #' @param points sf object with point locations  
 #' @param var character, variable name to extract (default "runoff")
+#' @param output_dir The directory to save files to
 #' 
-loca2_mwbm_processor <- function(nc_path, output_dir, points, var = "runoff") {
+loca2_mwbm_processor <- function(nc_path, points, var = "runoff", output_dir) {
   
   message("Starting vectorized extraction...")
   
