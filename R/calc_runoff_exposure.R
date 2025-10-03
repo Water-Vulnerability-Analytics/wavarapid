@@ -4,9 +4,7 @@
 #' First checks if processed files exist, if not runs NetCDF processing.
 #' 
 #' @param water_supplies sf object with water supply locations
-#' @param runoff_data character vector of NetCDF file paths 
-#' @param rerun_extraction logical, whether to force rerun of raster extraction
-#' @param processed_files_dir The folder to save processed files to, and/or retrieve existing files from
+#' @param runoff_data character vector of processed loca2 mwbm files
 #' @param save logical, whether to save output
 #' @param output_dir character, directory path for saving files
 #' @param verbose logical, whether to show progress messages
@@ -14,9 +12,7 @@
 #' @return tibble with water supply ID, park info, and runoff exposure indicators
 #' 
 calc_runoff_exposure <- function(water_supplies,
-                                 runoff_data = list.files("data/all/loca2_mwbm/", full.names = TRUE, pattern = "*runoff") %>% .[!grepl("historical", .)],
-                                 rerun_extraction = FALSE,
-                                 processed_files_dir = "data/rapid/loca2_mwbm_runoff/",
+                                 runoff_data = "data/rapid/inputs/loca2_mwbm_runoff/",
                                  save = FALSE,
                                  output_dir = NULL,
                                  verbose = TRUE) {
@@ -33,26 +29,12 @@ calc_runoff_exposure <- function(water_supplies,
     start_time <- Sys.time()
   }
   
-  if(rerun_extraction == TRUE) {
-    
-    # process all NetCDF files by applying nc_processor function to each file with water supply points
-    message("Processing NetCDF files. This can take some time depending on the number of features.")    
-    
-    # Process all NetCDF files using helper function
-    walk(runoff_data, ~loca2_mwbm_processor(.x, output_dir = processed_files_dir, points = water_supplies, var = "runoff"))
-    
-  } else {
-    if (verbose) {
-      message("Skipping NetCDF extraction.")
-    }
-  }
-  
   # pull files
-  files <- list.files("data/rapid/loca2_mwbm_runoff/", full.names = TRUE)
+  files <- list.files(runoff_data, full.names = TRUE)
   
   # Check if we have any files to process
   if (length(files) == 0) {
-    stop("No processed files found and NetCDF processing failed. Check your input data and file paths.")
+    stop("No processed files found. Check your input data and file paths.")
   }
   
   if (verbose) {
