@@ -6,8 +6,6 @@
 #' @param prefix character, prefix pattern to match columns (e.g., "raw_fire_prob")
 #' @param invert logical, whether to invert the direction of scaling so that
 #'   higher raw values correspond to lower normalized and ranked scores.
-#'   Useful for indicators where a higher raw value represents a negative
-#'   outcome (e.g., risk, vulnerability, loss).
 #' @return tibble with added norm_ and rank_ columns
 #' 
 add_standardized_indicators <- function(data, prefix, invert = FALSE) {
