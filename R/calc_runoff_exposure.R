@@ -284,7 +284,7 @@ calc_runoff_exposure <- function(water_supplies,
     add_standardized_indicators("raw_runoff_change", invert = TRUE) %>%
     add_standardized_indicators("raw_models_showing_decrease") %>%
     # reorder columns following standardized pattern
-    select(wsd_source_id, park_unit, everything())
+    select(wsd_source_id, park_unit, park_name, everything())
   
   # Save results
   if (save) {
