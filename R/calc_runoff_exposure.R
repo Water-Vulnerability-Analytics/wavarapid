@@ -76,7 +76,8 @@ calc_runoff_exposure <- function(water_supplies,
   # grids and times
   process_raw_grid_data <- function(f) {
     
-    raw <- fread(f)
+    raw <- fread(f) %>%
+      dplyr::filter(wsd_source_id %in% water_supplies$wsd_source_id)
     
     annual_points <- as.data.table(raw)[
       , year := as.integer(format(date, "%Y"))
