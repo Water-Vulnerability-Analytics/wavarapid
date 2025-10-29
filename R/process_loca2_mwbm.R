@@ -1,16 +1,24 @@
 #' Process NetCDF files for runoff data extraction
 #' 
-#' @param nc_path path to NetCDF file
-#' @param points sf object with point locations  
+#' @param nc_path path to NetCDF files - found in "data/all/loca2_mwbm/"
+#' @param water_supplies sf object with point locations  
 #' @param var character, variable name to extract (default "runoff")
-#' @param output_dir The directory to save files to
+#' @param historical Character vector of length 2 giving the start and end dates
+#'   (in `"YYYY-MM-DD"` format) that defines the "historical" period.  
+#'   Defaults to `c("1980-01-01", "2024-12-31")`.
+#' @param future Character vector of length 2 giving the start and end dates
+#'   (in `"YYYY-MM-DD"` format) that defines the "future" period.  
+#'   Defaults to `c("2035-01-01", "2065-12-31")`.
+#' @param output_dir Directory to save the extracted CSV output files.
 #' 
 process_loca2_mwbm <- function(nc_path,
-                               points,
+                               water_supplies,
                                var = "runoff",
+                               historical = c("1980-01-01", "2024-12-31"),
+                               future = c("2035-01-01", "2065-12-31"),
                                output_dir = "data/rapid/inputs/loca2_mwbm_runoff/") {
   
-  message("Starting vectorized extraction...")
+  message(paste0("Starting vectorized extraction of ", nc_path))
   
   start_time <- Sys.time()
   
@@ -27,55 +35,61 @@ process_loca2_mwbm <- function(nc_path,
   # Alder training historical data is in 0-360 whereas others are not...
   if (any(lon > 180)) lon <- ifelse(lon > 180, lon - 360, lon)
   
-  # transform points to nc coordinate system if not already
-  if (st_crs(points) != st_crs(rast(nc_path))) {
-    points <- st_transform(points, st_crs(rast(nc_path)))
+  # transform water_supplies to nc coordinate system if not already
+  if (st_crs(water_supplies) != st_crs(rast(nc_path))) {
+    water_supplies <- st_transform(water_supplies, st_crs(rast(nc_path)))
   }
   
-  grid_sf <- expand.grid(lon = lon, lat = lat) %>%
-    st_as_sf(coords = c("lon", "lat"), crs = st_crs(rast(nc_path)))
+  # grid_sf <- expand.grid(lon = lon, lat = lat) %>%
+  #   st_as_sf(coords = c("lon", "lat"), crs = st_crs(rast(nc_path)))
   
   # get time units 
   time_seq <-  ncvar_get(nc, "time")
   time_units <- nc$dim[["time"]]$units
   
   # Filter time indices based on units
-  time_indices_to_keep <- seq_along(time_seq)  # Default: keep all
+  time_indices_to_keep <- seq_along(time_seq)  
   
   if (!is.na(time_units) && grepl("days since 1950-01-01", time_units, ignore.case = TRUE)) {
-    message("Found 'days since 1950-01-01' units - filtering to 1980-2010 and 2035-2065 periods")
+    message(sprintf("Filtering to %s to %s and %s to %s periods", 
+                    historical[1], historical[2], future[1], future[2]))
     
-    # Convert days since 1950-01-01 to actual years
-    start_1981 <- 31 * 365.25    
-    end_2010 <- 61 * 365.25      
-    start_2035 <- 85 * 365.25    
-    end_2065 <- 116 * 365.25     
+    # convert date boundaries to days since 1950-01-01
+    # (how these cdf files record times)
+    origin_date <- as.Date("1950-01-01")
+    
+    # Use the historical and future arguments
+    start_historical <- as.numeric(as.Date(historical[1]) - origin_date)
+    end_historical   <- as.numeric(as.Date(historical[2]) - origin_date)
+    start_future     <- as.numeric(as.Date(future[1]) - origin_date)
+    end_future       <- as.numeric(as.Date(future[2]) - origin_date)
     
     # grab grids within our desired periods
-    period_1981_2010 <- which(time_seq >= start_1981 & time_seq <= end_2010)
-    period_2035_2065 <- which(time_seq >= start_2035 & time_seq <= end_2065)
+    period_historical <- which(time_seq >= start_historical & time_seq <= end_historical)
+    period_future     <- which(time_seq >= start_future & time_seq <= end_future)
     
-    time_indices_to_keep <- c(period_1981_2010, period_2035_2065)
+    time_indices_to_keep <- c(period_historical, period_future)
     time_indices_to_keep <- sort(time_indices_to_keep)  # Keep in chronological order
     
     message(sprintf("Filtered from %d to %d time steps", length(time_seq), length(time_indices_to_keep)))
-    message(sprintf("1980-2010 period: %d steps, 2035-2065 period: %d steps", 
-                    length(period_1981_2010), length(period_2035_2065)))
+    message(sprintf("Historical period (%s to %s): %d steps, Future period (%s to %s): %d steps", 
+                    historical[1], historical[2], length(period_historical),
+                    future[1], future[2], length(period_future)))
   }
   
   # update time_seq and nt to reflect filtered data
   time_seq <- time_seq[time_indices_to_keep]
   nt <- length(time_seq)
   
-  # convert sf points to terra vect object and extract coordinates
-  v_pts <- vect(points)
+  # convert sf water_supplies to terra vect object and extract coordinates
+  v_pts <- vect(water_supplies)
   xy <- crds(v_pts)
   
   # convert geographic coordinates to array indices by finding nearest nc grid cell center
   lon_index <- map_int(xy[, 1], ~ which.min(abs(lon - .x)))
   # closest latitude index for each point
   lat_index <- map_int(xy[, 2], ~ which.min(abs(lat - .x)))
-  # combine longitude and latitude indices into matrix of closest nc grid cell:
+  # combine longitude and latitude indices into matrix for "closest nc grid cell":
   center_indices  <- cbind(lon_index = lon_index, lat_index = lat_index)
   
   # get surrounding (3x3) neighborhoods around each point 
@@ -154,7 +168,7 @@ process_loca2_mwbm <- function(nc_path,
     message("Completed filtered extraction")
     
   } else {
-    # use original chunking approach for non-filtered data
+    # if no filter, use original chunking approach (KW OG)
     chunk_size <- min(50, nt)  
     n_chunks <- ceiling(nt / chunk_size)
     
@@ -225,7 +239,7 @@ process_loca2_mwbm <- function(nc_path,
   message(sprintf("Extraction completed in %.2f seconds", as.numeric(difftime(end_time, start_time, units = "secs"))))
   
   # extract point attributes (non-spatial data) and add point ID column
-  pts_attr <- st_drop_geometry(points) %>% mutate(.pt_id = row_number())
+  pts_attr <- st_drop_geometry(water_supplies) %>% mutate(.pt_id = row_number())
   
   # convert results to data.table and join with point attributes
   results_dt <- as.data.table(results)[
