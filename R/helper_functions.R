@@ -103,3 +103,45 @@ process_raw_grid_data <- function(f, water_supplies) {
   
   return(out[])
 }
+
+# DOWNLOADING NOAA SURFACE INUNDATION TIF DATASETS HELPER FUNCTION =============
+
+#' Download NOAA SLRV inundation surface tif data from master URL df
+#' 
+#' @param slr_tif_url_df df which holds the URLs for inundation surface raster tifs from NOAA SLRV
+
+download_NOAA_inun_surf_tif_data <- function(tif_url_df) {
+  tif_url_df %>% 
+    pwalk(
+      function(url, file, state, ...){
+        
+        # Create state directory if it doesn't exist
+        dest_dir <- here("data", "all", "coast_comp_data", "NOAA_SLRV_2022", "Extent_Rasters", state)
+        dir.create(dest_dir, recursive = TRUE, showWarnings = FALSE)
+        
+        # Try to download data 3 times
+        for (i in 1:3){
+          tryCatch({
+            download.file(
+              url = url,
+              destfile = here("data", "all", "coast_comp_data", "NOAA_SLRV_2022", "Extent_Rasters", state, file), 
+              mode = "wb"
+            ) 
+            cat("\nDownload succeeded (attempt:", i,") for:", file, "\n")
+            break # exit the for loop on success
+          }, error = function(e) {
+            cat("\nDownload failed (attempt:", i,") for:", file, "\n")
+            Sys.sleep(i)
+            if (i == 3) cat("\n⚠️ All 3 attempts failed for:", file, "\n")
+          })
+        }
+        
+        gc()
+        Sys.sleep(1)
+        
+        # All 3 download attempts failed
+        return()
+        
+      }
+    )
+}
