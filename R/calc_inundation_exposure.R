@@ -1,10 +1,29 @@
-calc_inundation_exposure <- function(
-    water_supplies,
-    inundation_raster_data_dir,
-    save = FALSE,
-    output_dir = NULL,
-    verbose = TRUE
-) {
+#' Calculate inundation exposure metrics for water-supply polygons
+#'
+#' Computes inundation exposure statistics for each water-supply polygon by
+#' extracting values from a reference inundation raster and a projected inundation
+#' raster, grouped by inundation surface region (e.g., state/region file pairs).
+#' For each polygon, the function calculates total intersecting raster cells,
+#' flooded cell counts, percent coverage in each scenario, absolute and percentage
+#' point changes, and a relative percent change (with special handling when the
+#' reference coverage is zero).
+#'
+#' @param water_supplies A modified water_supplies sf feature that must include
+#'   at minimum the following columns:
+#'   \describe{
+#'     \item{\code{inun_region}}{Grouping variable used to split polygons into regions.}
+#'     \item{\code{state}}{State subdirectory name used to locate rasters.}
+#'     \item{\code{ref_file}}{Filename of the reference inundation raster.}
+#'     \item{\code{proj_file}}{Filename of the projected inundation raster.}
+#'   }
+#' @param save logical, whether to save output
+#' @param output_dir character, directory path for saving files
+#' @param verbose logical, whether to show progress messages
+calc_inundation_exposure <- function(water_supplies,
+                                     inundation_raster_data_dir,
+                                     save = FALSE,
+                                     output_dir = NULL,
+                                     verbose = TRUE) {
   
   # Input validation
   stopifnot(
@@ -51,13 +70,13 @@ calc_inundation_exposure <- function(
     extract_lists <- map(
       list(ref_f, proj_f),
       function(rast_f) {
-       rast <- terra::rast(rast_f)
-       terra::crs(rast) <- crs_val
-       extracts <- terra::extract(rast, ws_terra)
-       rm(rast)
-       gc()
-       Sys.sleep(1)
-       return(extracts)
+        rast <- terra::rast(rast_f)
+        terra::crs(rast) <- crs_val
+        extracts <- terra::extract(rast, ws_terra)
+        rm(rast)
+        gc()
+        Sys.sleep(1)
+        return(extracts)
       }
     )
     
