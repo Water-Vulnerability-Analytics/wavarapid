@@ -13,6 +13,8 @@
 #'   ITF NetCDF inputs and NOAA SLRV URL list inputs, and where outputs will be written.
 #'   Defaults to `"data/all/coast_comp_data"`.
 
+# TODO: Basically, all code leading up to the calc_inundation_exposure() can go into a single process_inundation_data() function. (Within that function, we can create an argument to "re-download" the raw files we need only if uses chooses to)
+
 process_inundation_data <- function(water_supplies,
                                     coast_dir_path = "data/all/coast_comp_data"){
   
@@ -48,13 +50,13 @@ process_inundation_data <- function(water_supplies,
   
   gc()
   
-  ## Generate the Interagency Task Force (ITF) Sea Level Rise (SLR) Projections
+  ## Load and Process the Interagency Task Force (ITF) Sea Level Rise (SLR) Projections
   
   # These data were downloaded from:
   #   [Global and Regional Sea Level Rise Scenarios for the United States: Updated Mean Projections and Extreme Water Level Probabilities Along U.S. Coastlines](https://zenodo.org/records/5951626)
   # 
   # The report that this data came from can be found here:
-  #   [2022 Technical Report](https://earth.gov/sealevel/us/resources/2022-sea-level-rise-technical-report/)
+  #   [2022 Technical Report](https://earth.gov/sealevel/us/internal_resources/756/noaa-nos-techrpt01-global-regional-SLR-scenarios-US.pdf)
   # 
   # An interactive tool displaying these data can be found here:
   #   [Interagency Sea Level Rise Scenario Tool](https://sealevel.nasa.gov/task-force-scenario-tool)
@@ -62,7 +64,15 @@ process_inundation_data <- function(water_supplies,
   # These data were made by the [Interagency Sea Level Task Force](https://earth.gov/sealevel/us/about/interagency-sea-level-task-force/). This working group
   # consists of members from NOAA, NASA, JPL, USGS, EPA, FEMA, DoD, and USACE.
   # 
-  # These data are the projections (scenarios) of SLR from the interagency report.
+  # This data includes a 1km gridded raster of the 83rd percentile of ITF Sea 
+  # Level Rise Projections for the year 2050 found in the "Results" section at the 
+  # download link above. The full dataset includes U.S. Sea Level Rise Scenarios 
+  # to 2150 by decade that incorporate estimates of vertical land motion. Data are 
+  # available at 1-degree grids along the U.S. coastline and downscaled 
+  # specifically at NOAA tide-gauge locations. Global mean sea level rise 
+  # scenarios are downscaled with output directly from the United Nations 
+  # Intergovernmental Panel on Climate Change (IPCC) Sixth Assessment Report 
+  # (AR6; IPCC, 2021a) and regionalized for the U.S. coastline.
   
   ### Generate the complete gridded ITF SLR projections
   
@@ -143,6 +153,8 @@ process_inundation_data <- function(water_supplies,
   
   gc()
   
+  # TODO: I get Warning message: [mask] CRS do not match
+  
   
   ## Generate the water supply data with ITF SLR projections
   # 
@@ -221,6 +233,7 @@ process_inundation_data <- function(water_supplies,
       file = basename(url), 
       info = str_split(str_remove(file, ".tif"), "_"),
       state = map_chr(info, ~ .x[1]),
+      # TODO: update depth_ft_in into something more accurate
       depth_ft_in = map(info, ~ {
         n <- length(.x)
         if (n >= 2) {
@@ -281,6 +294,7 @@ process_inundation_data <- function(water_supplies,
   download_NOAA_inun_surf_tif_data <- function(tif_url_df) {
     tif_url_df %>% 
       pwalk(
+        # TODO: It would be good to add a save directory type arg to this.
         function(url, file, state, ...){
           
           # Create state directory if it doesn't exist
@@ -335,6 +349,7 @@ process_inundation_data <- function(water_supplies,
   
   
   # Make a list of relevant state codes
+  # TODO: Double check for duplicate state directories
   rel_state_codes <- list.dirs(
     path = here(coast_dir_path, "NOAA_SLRV_2022", "Extent_Rasters"),
     full.names = FALSE,
@@ -377,11 +392,7 @@ process_inundation_data <- function(water_supplies,
           crs(inun_raster) <- "+proj=longlat +datum=WGS84 +no_defs"
           
           # Convert raster to bbox to mask with water supply inundation projection data
-          bbox <- terra::ext(inun_raster)
-          bbox_poly <- terra::as.polygons(bbox)
-          terra::crs(bbox_poly) <- "+proj=longlat +datum=WGS84 +no_defs"
-          bbox_sf <- sf::st_as_sf(bbox_poly)
-          sf::st_crs(bbox_sf) <- 4326
+          bbox_sf <- sf::st_as_sf(sf::st_as_sfc(sf::st_bbox(inun_raster), crs = 4326))
           
           # Add the region to the bbox
           bbox_sf <- bbox_sf %>%

@@ -21,8 +21,8 @@
 #' @param verbose logical, whether to show progress messages
 calc_inundation_exposure <- function(water_supplies,
                                      inundation_raster_data_dir,
-                                     save = FALSE,
-                                     output_dir = NULL,
+                                     save = FALSE, 
+                                     output_dir = NULL, # TODO: save dir: data/rapid/outputs
                                      verbose = TRUE) {
   
   # Input validation
@@ -90,8 +90,7 @@ calc_inundation_exposure <- function(water_supplies,
         total_cells = n(), # All cells touching polygon
         flooded_cells = sum(.data[[names(ref_extracts)[2]]], na.rm = T), # Flooded cells
         .groups = "drop"
-      ) %>%
-      ungroup()
+      )
     
     proj_extract_stats <- proj_extracts %>%
       group_by(ID) %>% 
@@ -111,6 +110,7 @@ calc_inundation_exposure <- function(water_supplies,
         coverage_pct_proj = (flooded_cells_proj/total_cells_proj) * 100,
         cell_change = flooded_cells_proj - flooded_cells_ref, 
         pct_point_change = coverage_pct_proj - coverage_pct_ref,
+        # TODO: think about percent change if there is no inundation and then some inundation
         pct_change = ifelse(coverage_pct_ref == 0, 
                             ifelse(coverage_pct_proj == 0, 0, Inf), 
                             pct_point_change/coverage_pct_ref * 100) 
@@ -154,6 +154,8 @@ calc_inundation_exposure <- function(water_supplies,
                cell_change, pct_point_change, pct_change),
              ~ ifelse(pct_change == 0, NA, .x))
     )
+  
+  # TODO: add_standardized_indicators()
   
   # If save, save results ====
   if (save) {
