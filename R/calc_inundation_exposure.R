@@ -77,18 +77,20 @@ calc_inundation_exposure <- function(water_supplies,
       function(rast_f) {
         rast <- terra::rast(rast_f)
         terra::crs(rast) <- crs_val
+        rast <- terra::crop(rast, terra::project(ws_terra, rast))
         extracts <- terra::extract(rast, ws_terra)
         rm(rast)
         gc()
-        Sys.sleep(1)
         return(extracts)
       }
     )
     
     # Calculate statistics ====
-    ref_extracts <- extract_lists[[1]]  
-    proj_extracts <- extract_lists[[2]] 
-    
+    ref_extracts <- extract_lists[[1]]
+    proj_extracts <- extract_lists[[2]]
+    rm(extract_lists)
+    gc()
+
     ref_extract_stats <- ref_extracts %>%
       group_by(ID) %>%
       summarise(
