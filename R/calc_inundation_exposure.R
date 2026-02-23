@@ -16,19 +16,24 @@
 #'     \item{\code{ref_file}}{Filename of the reference inundation raster.}
 #'     \item{\code{proj_file}}{Filename of the projected inundation raster.}
 #'   }
+#' @param inundation_raster_data_dir path to inundation surface raster state subdirectories
 #' @param save logical, whether to save output
 #' @param output_dir character, directory path for saving files
 #' @param verbose logical, whether to show progress messages
+
 calc_inundation_exposure <- function(water_supplies,
-                                     inundation_raster_data_dir,
-                                     save = FALSE,
+                                     inundation_raster_data_dir = here("data", "rapid", "inputs", "coast_comp", "Extent_Rasters"),
+                                     save = FALSE, 
                                      output_dir = NULL,
                                      verbose = TRUE) {
   
   # Input validation
+  required_columns <- c("inun_region", "state", "ref_file", "proj_file")
+  
   stopifnot(
     "water_supplies must be an sf object" = inherits(water_supplies, "sf"),
-    "save is TRUE but output_dir not provided" = !save || !is.null(output_dir)
+    "save is TRUE but output_dir not provided" = !save || !is.null(output_dir),
+    "water_supplies missing required columns" = all(required_columns %in% names(water_supplies))
   )
   
   # If verbose start time 
@@ -72,61 +77,69 @@ calc_inundation_exposure <- function(water_supplies,
       function(rast_f) {
         rast <- terra::rast(rast_f)
         terra::crs(rast) <- crs_val
+        rast <- terra::crop(rast, terra::project(ws_terra, rast))
         extracts <- terra::extract(rast, ws_terra)
         rm(rast)
         gc()
-        Sys.sleep(1)
         return(extracts)
       }
     )
     
     # Calculate statistics ====
-    ref_extracts <- extract_lists[[1]]  
-    proj_extracts <- extract_lists[[2]] 
-    
+    ref_extracts <- extract_lists[[1]]
+    proj_extracts <- extract_lists[[2]]
+    rm(extract_lists)
+    gc()
+
     ref_extract_stats <- ref_extracts %>%
-      group_by(ID) %>% 
+      group_by(ID) %>%
       summarise(
-        total_cells = n(), # All cells touching polygon
-        flooded_cells = sum(.data[[names(ref_extracts)[2]]], na.rm = T), # Flooded cells
+        raw_total_cells = n(), # All cells touching polygon
+        raw_flooded_cells = sum(.data[[names(ref_extracts)[2]]], na.rm = T), # Flooded cells
         .groups = "drop"
-      ) %>%
-      ungroup()
-    
+      )
+
     proj_extract_stats <- proj_extracts %>%
-      group_by(ID) %>% 
+      group_by(ID) %>%
       summarise(
-        total_cells = n(), # All cells touching polygon
-        flooded_cells = sum(.data[[names(proj_extracts)[2]]], na.rm = T), # Flooded cells
+        raw_total_cells = n(), # All cells touching polygon
+        raw_flooded_cells = sum(.data[[names(proj_extracts)[2]]], na.rm = T), # Flooded cells
         .groups = "drop"
-      ) %>%
-      ungroup()
-    
+      )
+
     all_extract_stats <- left_join(
       ref_extract_stats, proj_extract_stats,
       by = "ID", suffix = c("_ref", "_proj")
     ) %>%
       mutate(
-        coverage_pct_ref = (flooded_cells_ref/total_cells_ref) * 100,
-        coverage_pct_proj = (flooded_cells_proj/total_cells_proj) * 100,
-        cell_change = flooded_cells_proj - flooded_cells_ref, 
-        pct_point_change = coverage_pct_proj - coverage_pct_ref,
-        pct_change = ifelse(coverage_pct_ref == 0, 
-                            ifelse(coverage_pct_proj == 0, 0, Inf), 
-                            pct_point_change/coverage_pct_ref * 100) 
+        raw_coverage_pct_ref = (raw_flooded_cells_ref / raw_total_cells_ref) * 100,
+        raw_coverage_pct_proj = (raw_flooded_cells_proj / raw_total_cells_proj) * 100,
+        raw_cell_change = raw_flooded_cells_proj - raw_flooded_cells_ref,
+        raw_pct_point_change = raw_coverage_pct_proj - raw_coverage_pct_ref,
+        raw_pct_change = ifelse(raw_coverage_pct_ref == 0,
+                                ifelse(raw_coverage_pct_proj == 0, 0, Inf),
+                                raw_pct_point_change / raw_coverage_pct_ref * 100),
+        inun_change = case_when(
+          raw_coverage_pct_ref == 0 & raw_coverage_pct_proj == 0 ~ "no_to_no",   # No inundation to no inundation
+          raw_coverage_pct_ref == 0 & raw_coverage_pct_proj > 0 ~ "no_to_some",  # No inundation to some inundation
+          raw_coverage_pct_ref > 0 & raw_coverage_pct_proj == 0 ~ "some_to_no",  # Some inundation to no inundation
+          raw_coverage_pct_ref > 0 & raw_coverage_pct_proj > 0  ~ "some_to_some",# Some inundation to some inundation
+          TRUE ~ NA_character_                                                     # Handle any edge cases
+        )
       ) %>%
       # organize columns and define them
       select(
-        ID,                    # Water supply polygon identifier from extract function
-        total_cells_ref,       # Total raster cells intersecting polygon in reference scenario
-        flooded_cells_ref,     # Count of flooded cells in reference scenario
-        coverage_pct_ref,      # Reference flood coverage as proportion of intersecting area
-        total_cells_proj,      # Total raster cells intersecting polygon in projection scenario  
-        flooded_cells_proj,    # Count of flooded cells in projection scenario
-        coverage_pct_proj,     # Projection flood coverage as proportion of intersecting area
-        cell_change,           # Net change in flooded cell count (proj - ref)
-        pct_point_change,      # Percentage point difference in coverage (proj - ref)
-        pct_change             # Relative percentage change from reference baseline
+        ID,                     # Water supply polygon identifier from extract function
+        raw_total_cells_ref,    # Total raster cells intersecting polygon in reference scenario
+        raw_flooded_cells_ref,  # Count of flooded cells in reference scenario
+        raw_coverage_pct_ref,   # Reference flood coverage as proportion of intersecting area
+        raw_total_cells_proj,   # Total raster cells intersecting polygon in projection scenario  
+        raw_flooded_cells_proj, # Count of flooded cells in projection scenario
+        raw_coverage_pct_proj,  # Projection flood coverage as proportion of intersecting area
+        raw_cell_change,        # Net change in flooded cell count (proj - ref)
+        raw_pct_point_change,   # Percentage point difference in coverage (proj - ref)
+        raw_pct_change,         # Relative percentage change from reference baseline
+        inun_change             # Categorical indicator for inundation change patterns
       )
     
     # Join all extract statistics with the water supply region data
@@ -142,17 +155,32 @@ calc_inundation_exposure <- function(water_supplies,
   # Clean up final results ====
   final_results <- ws_inun_stats %>%
     select(ID, wsd_source_id, 
-           buffer_km, # NOTE: We do not pivot based on the buffer km here.
+           buffer_km, # NOTE: We do not pivot based on the buffer km here. This data has 1km and 4km stacked.
            inun_proj_mm, inun_proj_closest_mm, depth_ft, 
            inun_region, inun_surf_url, proj_file, ref_file,
-           total_cells_ref, flooded_cells_ref, coverage_pct_ref,
-           total_cells_proj, flooded_cells_proj, coverage_pct_proj,
-           cell_change, pct_point_change, pct_change) %>%
+           raw_total_cells_ref, raw_flooded_cells_ref, raw_coverage_pct_ref,
+           raw_total_cells_proj, raw_flooded_cells_proj, raw_coverage_pct_proj,
+           raw_cell_change, raw_pct_point_change, raw_pct_change, inun_change) %>%
     mutate(
-      across(c(total_cells_ref, flooded_cells_ref, coverage_pct_ref,
-               total_cells_proj, flooded_cells_proj, coverage_pct_proj,
-               cell_change, pct_point_change, pct_change),
-             ~ ifelse(pct_change == 0, NA, .x))
+      across(c(raw_total_cells_ref, raw_flooded_cells_ref, raw_coverage_pct_ref,
+               raw_total_cells_proj, raw_flooded_cells_proj, raw_coverage_pct_proj,
+               raw_cell_change, raw_pct_point_change, raw_pct_change),
+             ~ ifelse(inun_change == "no_to_no", NA, .x))
+    ) %>%
+    add_standardized_indicators("raw_coverage_pct_ref") %>%
+    add_standardized_indicators("raw_coverage_pct_proj") %>%
+    add_standardized_indicators("raw_cell_change") %>%
+    add_standardized_indicators("raw_pct_point_change") %>%
+    # Percent change is a special case where there could be infinite values in it 
+    # due to the no inundation to some inundation situation.
+    mutate(
+      # Temporarily replace Inf with NA for ranking calculations
+      raw_pct_change = ifelse(is.infinite(raw_pct_change), NA, raw_pct_change)
+    ) %>%
+    add_standardized_indicators(prefix = "raw_pct_change") %>%
+    mutate(
+      # Put the Inf values back in the original column after ranking
+      raw_pct_change = ifelse(is.na(raw_pct_change) & inun_change == "no_to_some", Inf, raw_pct_change)
     )
   
   # If save, save results ====
