@@ -332,4 +332,33 @@ calc_inundation_exposure <- function(ws_scenarios = sf::st_read(here("data", "ra
   
   return(final_results)
   
-  }
+}
+
+# old <- read_csv("data/rapid/outputs/inundation_exposure_2026-02-20.csv")
+# new <- read_csv("data/rapid/outputs/kw_inundation_exposure_2026-02-25.csv")
+# 
+# combo <- old %>%
+#   inner_join(new, by = c("buffer_km", "wsd_source_id"), suffix = c("_old", "_new")) %>%
+#   mutate(dif = raw_pct_point_change_new - raw_pct_point_change_old,
+#          abs_dif = abs(dif))
+# 
+# outliers <- combo %>%
+#   filter(is.finite(abs_dif)) %>%
+#   slice_max(abs_dif, n = 20, with_ties = FALSE)
+# 
+# ggplotly(
+#   ggplot(data = combo, aes(x = raw_pct_point_change_old, 
+#                            y = raw_pct_point_change_new,
+#                            text = paste0(
+#                              "wsd_source_id: ", wsd_source_id,
+#                              "<br>buffer_km: ", buffer_km,
+#                              "<br>original: ", round(raw_pct_point_change_old, 2),
+#                              "<br>updated: ", round(raw_pct_point_change_new, 2),
+#                              "<br>dif: ", round(dif, 2)))) +
+#     geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray60") +
+#     geom_point(aes(color = wsd_source_id %in% outliers$wsd_source_id), alpha = 0.8) +
+#     scale_color_manual(values = c(`FALSE` = "gray70", `TRUE` = "red"), guide = "none") +
+#     geom_text_repel(data = outliers, aes(label = wsd_source_id), size = 3, max.overlaps = Inf) +
+#     labs(x = "Original Approach", y = "New Approach"),
+#   tooltip = "text")
+
