@@ -29,7 +29,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
                                     water_supplies,
                                     output_dir = here("data", "rapid", "inputs", "coast_comp")) {
   
-  # Generate the buffered water supply dataset ====
+  # Generate the buffered water supply dataset 
   
   # For this dataset we will buffer the water supply points by 1 and 4 km. We will
   # use this dataset to do our inundation risk analysis.
