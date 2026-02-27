@@ -263,10 +263,6 @@ calc_inundation_exposure <- function(ws_scenarios = sf::st_read(here("data", "ra
                                              NA_real_),
              raw_cell_change = raw_flooded_cells_proj - raw_flooded_cells_ref,
              raw_pct_point_change = raw_coverage_pct_proj - raw_coverage_pct_ref,
-             raw_pct_change = case_when(is.na(raw_coverage_pct_ref) | is.na(raw_coverage_pct_proj) ~ NA_real_,
-                                        raw_coverage_pct_ref == 0 & raw_coverage_pct_proj == 0 ~ 0,
-                                        raw_coverage_pct_ref == 0 & raw_coverage_pct_proj > 0 ~ Inf,
-                                        TRUE ~ (raw_pct_point_change / raw_coverage_pct_ref) * 100),
              inun_change = case_when(raw_coverage_pct_ref == 0 & raw_coverage_pct_proj == 0 ~ "no_to_no",
                                      raw_coverage_pct_ref == 0 & raw_coverage_pct_proj > 0  ~ "no_to_some",
                                      raw_coverage_pct_ref > 0  & raw_coverage_pct_proj == 0 ~ "some_to_no",
@@ -281,7 +277,6 @@ calc_inundation_exposure <- function(ws_scenarios = sf::st_read(here("data", "ra
              raw_coverage_pct_proj,  # Projection flood coverage as proportion of intersecting area
              raw_cell_change,        # Net change in flooded cell count (proj - ref)
              raw_pct_point_change,   # Percentage point difference in coverage (proj - ref)
-             raw_pct_change,         # Relative percentage change from reference baseline
              inun_change)            # Categorical indicator for inundation change patterns
     
     return(region_results)
@@ -308,14 +303,9 @@ calc_inundation_exposure <- function(ws_scenarios = sf::st_read(here("data", "ra
     add_standardized_indicators("raw_coverage_pct_ref") %>%
     add_standardized_indicators("raw_coverage_pct_proj") %>%
     add_standardized_indicators("raw_cell_change") %>%
-    add_standardized_indicators("raw_pct_point_change") %>%
-    # Percent change special case: Inf arises from no_to_some transitions.
-    # Temporarily replace Inf with NA for ranking, then restore afterwards.
-    mutate(raw_pct_change = ifelse(is.infinite(raw_pct_change), NA, raw_pct_change)) %>%
-    add_standardized_indicators(prefix = "raw_pct_change") %>%
-    mutate(raw_pct_change = ifelse(is.na(raw_pct_change) & inun_change == "no_to_some", Inf, raw_pct_change))
+    add_standardized_indicators("raw_pct_point_change")
   
-  # Save if requested ====
+  # Save if requested 
   if (save) {
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     filename <- file.path(output_dir, paste0("inundation_exposure_", Sys.Date(), ".csv"))
