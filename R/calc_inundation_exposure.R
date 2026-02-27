@@ -10,7 +10,7 @@
 #'
 #' Non-overlapping sites (count <= 2) fall on a single raster tile and are
 #' extracted all at once using exactextractr for speed. Sites with overlapping
-#' geometries (count > 2) are processed individually with mosaicking across
+#' geometries (count > 1) are processed individually with mosaicking across
 #' tiles as needed.
 #'
 #' @param ws_scenarios A modified water_supplies sf feature that must include
