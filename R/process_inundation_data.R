@@ -113,45 +113,6 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   rm(projections_raster, projection_layer, proj_layer_rotated)
   gc()
   
-  ## Generate US Coast subset of ITF SLR projections ----
-  
-  # This version of the ITF SLR projection dataset will not be used for the analysis.
-  # This version of the projection dataset is for visualization purposes.
-  # Excludes Alaska.
-  
-  # # Define CONUS bounding box
-  # conus_bbox <- sf::st_as_sfc(sf::st_bbox(c(xmin = -125, ymin = 20, xmax = -66, ymax = 50)))
-  # sf::st_crs(conus_bbox) <- 4269  # Match the coastline CRS
-  # 
-  # # Get coastline and crop with the bounding box
-  # us_coastline <- tigris::coastline(year = 2020)
-  # conus_coastline <- sf::st_crop(us_coastline, conus_bbox) %>%
-  #   sf::st_transform(crs = 4326)
-  # 
-  # # Mask the us coastline on the raster data. Masking on the point buffers was inconsistent
-  # projection_coast_mask <- terra::mask(final_itf_slr_proj, conus_coastline, touches = TRUE)
-  # 
-  # # Create a binary mask of where data exists
-  # data_mask <- !is.na(projection_coast_mask)
-  # 
-  # # Expand the mask using focal
-  # expanded_mask <- terra::focal(data_mask, w = 3, fun = max, na.rm = TRUE)
-  # 
-  # # Apply the expanded mask to the original data
-  # projections_expanded <- terra::mask(final_itf_slr_proj, expanded_mask, maskvalue = 0)
-  # 
-  # relevant_projections <- terra::trim(projections_expanded)
-  # 
-  # # Save the coastal gridded projections to a tif
-  # terra::writeRaster(relevant_projections,
-  #                    here(coast_dir_path, "interagency_report", "generated_products",
-  #                         "itf_slr_proj_coast_subset.tif"),
-  #                    overwrite = TRUE)
-  # 
-  # rm(us_coastline, conus_bbox, conus_coastline, projection_coast_mask,
-  #    data_mask, expanded_mask, projections_expanded, relevant_projections)
-  # gc()
-  
   # Generate the water supply data with ITF SLR projections 
   
   # Now that we have the buffered water supply points and the ITF SLR gridded projections
