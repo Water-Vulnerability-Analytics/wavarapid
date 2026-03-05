@@ -22,7 +22,7 @@
 #'   ITF NetCDF inputs and NOAA SLRV URL list inputs, and where outputs will be written.
 #'   Defaults to `"data/all/coast_comp_data"`.
 #' @param water_supplies An `sf` object of point geometries representing water supply locations.
-#'   Must include a `state` column (2-letter state code) used to group downloads/processing.
+#'   Must include a `source_state` column (2-letter state code) used to group downloads/processing.
 #' @param output_dir Directory to save the datasets that will be used as inputs for the
 #'   calculation of inundation exposure.
 process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_comp_data"),
