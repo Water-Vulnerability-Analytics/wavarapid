@@ -373,7 +373,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
     inner_join(ws_inun_regions %>% st_drop_geometry() %>% select(ID, buffer_km, inun_region, inun_proj_closest_mm),
                by = c("ID", "buffer_km")) %>%
     left_join(download_tif_df,
-              by = c("state", "inun_region", "inun_proj_closest_mm" = "depth_mm")) %>%
+              by = c("source_state" = "state", "inun_region", "inun_proj_closest_mm" = "depth_mm")) %>%
     left_join(reference_tif_df %>% select(state, inun_region, reference_file = file),
               by = c("inun_region", "state")) %>%
     rename(inun_surf_url = url, proj_file = file, ref_file = reference_file) %>%
