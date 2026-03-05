@@ -22,7 +22,7 @@
 #'   ITF NetCDF inputs and NOAA SLRV URL list inputs, and where outputs will be written.
 #'   Defaults to `"data/all/coast_comp_data"`.
 #' @param water_supplies An `sf` object of point geometries representing water supply locations.
-#'   Must include a `state` column (2-letter state code) used to group downloads/processing.
+#'   Must include a `source_state` column (2-letter state code) used to group downloads/processing.
 #' @param output_dir Directory to save the datasets that will be used as inputs for the
 #'   calculation of inundation exposure.
 process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_comp_data"),
@@ -112,45 +112,6 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   rm(projections_raster, projection_layer, proj_layer_rotated)
   gc()
-  
-  ## Generate US Coast subset of ITF SLR projections ----
-  
-  # This version of the ITF SLR projection dataset will not be used for the analysis.
-  # This version of the projection dataset is for visualization purposes.
-  # Excludes Alaska.
-  
-  # # Define CONUS bounding box
-  # conus_bbox <- sf::st_as_sfc(sf::st_bbox(c(xmin = -125, ymin = 20, xmax = -66, ymax = 50)))
-  # sf::st_crs(conus_bbox) <- 4269  # Match the coastline CRS
-  # 
-  # # Get coastline and crop with the bounding box
-  # us_coastline <- tigris::coastline(year = 2020)
-  # conus_coastline <- sf::st_crop(us_coastline, conus_bbox) %>%
-  #   sf::st_transform(crs = 4326)
-  # 
-  # # Mask the us coastline on the raster data. Masking on the point buffers was inconsistent
-  # projection_coast_mask <- terra::mask(final_itf_slr_proj, conus_coastline, touches = TRUE)
-  # 
-  # # Create a binary mask of where data exists
-  # data_mask <- !is.na(projection_coast_mask)
-  # 
-  # # Expand the mask using focal
-  # expanded_mask <- terra::focal(data_mask, w = 3, fun = max, na.rm = TRUE)
-  # 
-  # # Apply the expanded mask to the original data
-  # projections_expanded <- terra::mask(final_itf_slr_proj, expanded_mask, maskvalue = 0)
-  # 
-  # relevant_projections <- terra::trim(projections_expanded)
-  # 
-  # # Save the coastal gridded projections to a tif
-  # terra::writeRaster(relevant_projections,
-  #                    here(coast_dir_path, "interagency_report", "generated_products",
-  #                         "itf_slr_proj_coast_subset.tif"),
-  #                    overwrite = TRUE)
-  # 
-  # rm(us_coastline, conus_bbox, conus_coastline, projection_coast_mask,
-  #    data_mask, expanded_mask, projections_expanded, relevant_projections)
-  # gc()
   
   # Generate the water supply data with ITF SLR projections 
   
@@ -344,7 +305,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   # Water supplies in states with inundation data
   inun_rel_ws <- ws_itf_slr_proj %>%
-    filter(state %in% rel_state_codes, !is.na(inun_proj_mm))
+    filter(state %in% rel_state_codes | source_state %in% rel_state_codes, !is.na(inun_proj_mm))
   
   # Spatially join buffered water supplies against inundation region bounding boxes,
   # (so, sites with multiple candidates exist)
@@ -412,9 +373,9 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
     inner_join(ws_inun_regions %>% st_drop_geometry() %>% select(ID, buffer_km, inun_region, inun_proj_closest_mm),
                by = c("ID", "buffer_km")) %>%
     left_join(download_tif_df,
-              by = c("state", "inun_region", "inun_proj_closest_mm" = "depth_mm")) %>%
+              by = c("source_state" = "state", "inun_region", "inun_proj_closest_mm" = "depth_mm")) %>%
     left_join(reference_tif_df %>% select(state, inun_region, reference_file = file),
-              by = c("inun_region", "state")) %>%
+              by = c("inun_region", "source_state" = "state")) %>%
     rename(inun_surf_url = url, proj_file = file, ref_file = reference_file) %>%
     relocate(depth_ft, depth_m, .after = inun_proj_closest_mm) %>%
     relocate(geometry, .after = last_col()) %>%

@@ -1,42 +1,41 @@
-#' Calculate inundation exposure metrics for water-supply polygons
+#' Calculate Sea Level Rise Inundation Exposure Indicator
 #'
-#' Computes inundation exposure statistics for each water-supply polygon by
-#' extracting values from a reference inundation raster and a projected inundation
-#' raster, grouped by inundation surface region (e.g., state/region file pairs).
-#' For each polygon, the function calculates total intersecting raster cells,
-#' flooded cell counts, percent coverage in each scenario, absolute and percentage
-#' point changes, and a relative percent change (with special handling when the
-#' reference coverage is zero).
+#' Calculates inundation exposure for buffered water supply polygons using NOAA
+#' Sea Level Rise Viewer inundation surfaces. For each polygon, the function
+#' extracts flooded cell counts and percent coverage under both a reference
+#' (current) and a projected SLR scenario, then computes absolute cell change,
+#' percentage point change, and whether the water supply centroid itself becomes
+#' inundated. Sites whose buffer overlaps a single inundation tile are processed
+#' in batch via exactextractr; sites spanning multiple tiles are mosaicked and
+#' processed individually.
 #'
-#' Non-overlapping sites (count <= 2) fall on a single raster tile and are
-#' extracted all at once using exactextractr for speed. Sites with overlapping
-#' geometries (count > 1) are processed individually with mosaicking across
-#' tiles as needed.
-#'
-#' @param ws_scenarios A modified water_supplies sf feature that must include
-#'   at minimum the following columns:
-#'   \describe{
-#'     \item{\code{inun_region}}{Grouping variable used to split polygons into regions.}
-#'     \item{\code{state}}{State subdirectory name used to locate rasters.}
-#'     \item{\code{ref_file}}{Filename of the reference inundation raster.}
-#'     \item{\code{proj_file}}{Filename of the projected inundation raster.}
-#'   }
-#' @param inundation_raster_data_dir path to inundation surface raster state subdirectories
+#' @param ws_scenarios sf object of ALL water supplies right-joined onto buffered
+#'   coastal SLR scenarios. Coastal rows have buffer polygon geometry and SLR
+#'   scenario columns (e.g. `inun_region`, `state`, `ref_file`, `proj_file`,
+#'   `buffer_km`); non-coastal rows have NA geometry and NA SLR columns. Must
+#'   include columns `wsd_source_id`, `park_unit`, `inun_region`,
+#'   `state`, `ref_file`, and `proj_file` (NAs acceptable for non-coastal rows).
+#' @param inundation_raster_data_dir character, path to inundation surface raster
+#'   state subdirectories
 #' @param save logical, whether to save output
 #' @param output_dir character, directory path for saving files
 #' @param verbose logical, whether to show progress messages
+#'
+#' @return tibble with water supply ID, buffer size, SLR projection metadata,
+#'   raw/normalized/ranked coverage indicators for reference and projected
+#'   scenarios (`raw/norm/rank_coverage_pct_ref`, `raw/norm/rank_coverage_pct_proj`),
+#'   raw/normalized/ranked cell change and percentage point change
+#'   (`raw/norm/rank_cell_change`, `raw/norm/rank_pct_point_change`),
+#'   an `inun_change` category (`no_to_no`, `no_to_some`, `some_to_some`,
+#'   `some_to_no`), and `inun_centroid_change` (categorical: `no_to_no`,
+#'   `no_to_yes`, `yes_to_yes`, `yes_to_no` — whether the water supply centroid
+#'   point was inundated in the reference and/or projected scenario).
 
-calc_inundation_exposure <- function(ws_scenarios = sf::st_read(here("data", "rapid", "inputs", "coast_comp", 
-                                                                     "buff_ws_inun_regions.gpkg")) %>%
-                                       # Filter for water supplies that have relevant inundation surface information
-                                       filter(!is.na(proj_file)),
+calc_inundation_exposure <- function(ws_scenarios,
                                      inundation_raster_data_dir = here("data", "rapid", "inputs", "coast_comp", "Extent_Rasters"),
                                      save = FALSE,
                                      output_dir = NULL,
                                      verbose = TRUE) {
-  
-  # for testing:
-  # inun_region_bboxs <- st_read(here("data/all/coast_comp_data/", "NOAA_SLRV_2022", "inundation_data", "inun_region_bboxs.gpkg"))
   
   # Input validation
   required_columns <- c("inun_region", "state", "ref_file", "proj_file")
@@ -46,12 +45,14 @@ calc_inundation_exposure <- function(ws_scenarios = sf::st_read(here("data", "ra
             "ws_scenarios missing required columns" = all(required_columns %in% names(ws_scenarios)))
   
   if (verbose) start_time <- Sys.time()
-  
-  ws_scenarios_mod <- ws_scenarios %>% 
+
+  # Separate non-analysis sites (no SLR scenario info) — recombined at the end
+  ws_not_in_analysis <- ws_scenarios %>% filter(is.na(proj_file))
+  ws_in_analysis     <- ws_scenarios %>% filter(!is.na(proj_file))
+
+  ws_scenarios_mod <- ws_in_analysis %>%
     ungroup() %>% 
     distinct() %>%
-    # for testing -
-    # filter(wsd_source_id == "CALO_WS_007_01") %>%
     mutate(identity = paste0(wsd_source_id, "-", buffer_km)) %>%
     select(c(park_unit, state, identity, wsd_source_id, buffer_km, inun_proj_mm,
              inun_region ,inun_proj_closest_mm, depth_ft, depth_m, inun_surf_url, 
@@ -72,9 +73,6 @@ calc_inundation_exposure <- function(ws_scenarios = sf::st_read(here("data", "ra
   # Main loop over regions ====
   ws_inun_stats <- map_dfr(region_list, function(region_sf) {
     
-    # for testing - 
-    # region_sf <- region_list[[1]]
-
     if (verbose) pb$tick()
     
     # tiles needed for this region 
@@ -122,34 +120,49 @@ calc_inundation_exposure <- function(ws_scenarios = sf::st_read(here("data", "ra
       batch_sf <- sf::st_as_sf(idx_batch)
       
       counts_list <- list()
-      
+      centroid_list <- list()
+
       for (scenario in c("ref", "proj")) {
-        
+
         file_col  <- if (scenario == "ref") "ref_file" else "proj_file"
-        
+
         tile_file <- unique(region_sf[[file_col]])
-        
+
         stopifnot(length(tile_file) == 1)
-        
+
         tile_path <- here(inundation_raster_data_dir, state, tile_file)
-        
+
         stopifnot(file.exists(tile_path))
-        
+
         rast <- terra::rast(tile_path)
-        
-        extracted <- exactextractr::exact_extract(rast, batch_sf)
-        
+
+        extracted <- suppressWarnings(
+          exactextractr::exact_extract(rast, batch_sf, progress = FALSE)
+        )
+
         counts_list[[scenario]] <- data.frame(identity = batch_sf$identity,
                                               buffer_km = batch_sf$buffer_km,
                                               total = vapply(extracted, \(df) nrow(df), numeric(1)),
                                               flooded = vapply(extracted, \(df) sum(!is.na(df$value)), numeric(1)),
                                               scenario = scenario)
+
+        # Extract at centroids using already-loaded raster (terra::extract used here
+        # since exactextractr does not support point geometries)
+        batch_centroids <- terra::vect(sf::st_transform(suppressWarnings(sf::st_centroid(batch_sf)), terra::crs(rast)))
+        centroid_list[[scenario]] <- !is.na(terra::extract(rast, batch_centroids)[, 2])
       }
-      
+
       batch_counts <- bind_rows(counts_list) %>%
         pivot_wider(names_from  = scenario,
                     values_from = c(total, flooded),
-                    names_glue  = "raw_{.value}_cells_{scenario}")
+                    names_glue  = "raw_{.value}_cells_{scenario}") %>%
+        mutate(inun_centroid_change = case_when(
+          !centroid_list[["ref"]] & !centroid_list[["proj"]] ~ "no_to_no",
+          !centroid_list[["ref"]] &  centroid_list[["proj"]] ~ "no_to_yes",
+           centroid_list[["ref"]] &  centroid_list[["proj"]] ~ "yes_to_yes",
+           centroid_list[["ref"]] & !centroid_list[["proj"]] ~ "yes_to_no",
+          TRUE ~ NA_character_
+        ))
     } else {
     batch_counts <- tibble()
     }
@@ -160,54 +173,56 @@ calc_inundation_exposure <- function(ws_scenarios = sf::st_read(here("data", "ra
     if (nrow(idx_one_by_one) > 0) {
       
       one_by_one_list <- list()
-      
+      centroid_obo_list <- list()
+
       combos <- unique(idx_one_by_one$identity)
-      
+
       for (i in seq_len(length(combos))) {
-        
-        b <- idx_one_by_one %>% 
-          filter(identity == combos[i]) %>% 
+
+        b <- idx_one_by_one %>%
+          filter(identity == combos[i]) %>%
           distinct(identity, .keep_all = TRUE)
-        
+
         b_sf <- sf::st_as_sf(b)
-        
+        centroid_vals_scenarios <- list(ref = FALSE, proj = FALSE)
+
         for (scenario in c("ref", "proj")) {
-          
+
           tiles <- if (scenario == "ref") ref_tiles else proj_tiles
-          
+
           tiles_words <- overlap_files %>%
             filter(identity == b_sf$identity) %>%
             pull(if (scenario == "ref") ref_file else proj_file)
-          
+
           tiles <- tiles[basename(tiles) %in% tiles_words]
-          
+
           if (length(tiles) == 0) {
             warning("No matching tiles for rowid ", b_sf$identity, ", scenario ", scenario)
             next
           }
-          
+
           out <- NULL
-          
+
           # fxn to crop and mask a single raster tile to a buffer polygon
           prep_tile <- function(r_path, b_sf) {
-            
+
             r0 <- terra::rast(r_path)
             b_projected <- sf::st_transform(b_sf, terra::crs(r0))
-            
+
             r1 <- tryCatch(terra::crop(r0, b_projected), error = function(e) NULL)
             if (is.null(r1) || !inherits(r1, "SpatRaster")) return(NULL)
             if (terra::ncell(r1) == 0 || all(is.na(terra::values(r1)))) return(NULL)
-            
+
             r2 <- tryCatch(terra::mask(r1, terra::vect(b_projected)), error = function(e) NULL)
             if (is.null(r2) || !inherits(r2, "SpatRaster")) return(NULL)
             if (all(is.na(terra::values(r2)))) return(NULL)
-            
+
             return(r2)
-            
+
           }
-          
+
          tile_list <- list()
-         
+
           for (r in tiles) {
             t <- tryCatch(prep_tile(r, b_sf), error = function(e) NULL)
             if (!is.null(t) && inherits(t, "SpatRaster")) tile_list[[length(tile_list) + 1]] <- t
@@ -221,34 +236,53 @@ calc_inundation_exposure <- function(ws_scenarios = sf::st_read(here("data", "ra
               }
             )
           }
-          
+
           if (is.null(out)) {
-            
+
             one_by_one_list[[paste(b_sf$identity, scenario, sep = "_")]] <- data.frame(identity = b_sf$identity,
                                                                                        buffer_km = b_sf$buffer_km,
                                                                                        total = NA,
                                                                                        flooded = 0,
                                                                                        scenario = scenario)
-            
+            centroid_vals_scenarios[[scenario]] <- FALSE
+
           } else {
-            
-            extracted <- exactextractr::exact_extract(out, 
-                                                      sf::st_transform(b_sf, terra::crs(out)))[[1]]
-            
+
+            extracted <- suppressWarnings(
+              exactextractr::exact_extract(out, sf::st_transform(b_sf, terra::crs(out)), progress = FALSE)
+            )[[1]]
+
             one_by_one_list[[paste(b_sf$identity, scenario, sep = "_")]] <- data.frame(identity = b_sf$identity,
                                                                                        buffer_km = b_sf$buffer_km,
                                                                                        total = nrow(extracted),
                                                                                        flooded = sum(!is.na(extracted$value)),
                                                                                        scenario = scenario)
+
+            # Extract at centroid using already-built mosaic (terra::extract used here
+            # since exactextractr does not support point geometries)
+            b_centroid_vect <- terra::vect(sf::st_transform(suppressWarnings(sf::st_centroid(b_sf)), terra::crs(out)))
+            centroid_vals_scenarios[[scenario]] <- !is.na(terra::extract(out, b_centroid_vect)[, 2])
           }
         }
+
+        centroid_obo_list[[combos[i]]] <- data.frame(
+          identity  = combos[i],
+          inun_centroid_change = dplyr::case_when(
+            !centroid_vals_scenarios[["ref"]] & !centroid_vals_scenarios[["proj"]] ~ "no_to_no",
+            !centroid_vals_scenarios[["ref"]] &  centroid_vals_scenarios[["proj"]] ~ "no_to_yes",
+             centroid_vals_scenarios[["ref"]] &  centroid_vals_scenarios[["proj"]] ~ "yes_to_yes",
+             centroid_vals_scenarios[["ref"]] & !centroid_vals_scenarios[["proj"]] ~ "yes_to_no",
+            TRUE ~ NA_character_
+          )
+        )
       }
-      
+
       one_by_one_counts <- bind_rows(one_by_one_list) %>%
-        pivot_wider(names_from  = scenario,
+        pivot_wider(names_from = scenario,
                     values_from = c(total, flooded),
-                    names_glue  = "raw_{.value}_cells_{scenario}") %>%
-        mutate(raw_total_cells_ref = if_else(is.na(raw_total_cells_ref), raw_total_cells_proj, raw_total_cells_ref))
+                    names_glue = "raw_{.value}_cells_{scenario}") %>%
+        mutate(raw_total_cells_ref = if_else(is.na(raw_total_cells_ref), raw_total_cells_proj, raw_total_cells_ref)) %>%
+        left_join(bind_rows(centroid_obo_list), by = "identity")
     } else {
       one_by_one_counts <- tibble()
     }
@@ -277,33 +311,58 @@ calc_inundation_exposure <- function(ws_scenarios = sf::st_read(here("data", "ra
              raw_coverage_pct_proj,  # Projection flood coverage as proportion of intersecting area
              raw_cell_change,        # Net change in flooded cell count (proj - ref)
              raw_pct_point_change,   # Percentage point difference in coverage (proj - ref)
-             inun_change)            # Categorical indicator for inundation change patterns
+             inun_change,            # Categorical indicator for inundation change patterns
+             inun_centroid_change)   # Whether the water supply point itself becomes inundated
     
     return(region_results)
     
   })
   
-  # Clean up final results 
-  final_results <- ws_inun_stats %>%
-    left_join(ws_scenarios %>%
-                select(park_unit, wsd_source_id, inun_proj_mm, inun_proj_closest_mm, depth_ft) %>%
-                distinct(),
-              by = "wsd_source_id") %>%
-    select(wsd_source_id,
-           buffer_km, # NOTE: We do not pivot based on buffer_km here. Data has 1km and 4km stacked.
+  # Clean up final results
+
+  # SLR metadata per water supply (distinct handles multi-region sites)
+  ws_geom_meta <- ws_in_analysis %>%
+    st_drop_geometry() %>%
+    select(wsd_source_id, inun_proj_mm, inun_proj_closest_mm, depth_ft) %>%
+    distinct()
+
+  # Processed coastal results with metadata
+  coastal_results <- ws_inun_stats %>%
+    left_join(ws_geom_meta, by = "wsd_source_id") %>%
+    select(wsd_source_id, buffer_km,
            inun_proj_mm, inun_proj_closest_mm, depth_ft,
            raw_total_cells_ref, raw_flooded_cells_ref, raw_coverage_pct_ref,
            raw_total_cells_proj, raw_flooded_cells_proj, raw_coverage_pct_proj,
-           raw_cell_change, raw_pct_point_change, raw_pct_change, inun_change) %>%
-    mutate(across(c(raw_total_cells_ref, raw_flooded_cells_ref, raw_coverage_pct_ref,
+           raw_cell_change, raw_pct_point_change, inun_change, inun_centroid_change) %>%
+    mutate(across(c(raw_total_cells_ref, raw_flooded_cells_ref,
                     raw_total_cells_proj, raw_flooded_cells_proj, raw_coverage_pct_proj,
-                    raw_cell_change, raw_pct_point_change, raw_pct_change),
-                  ~ ifelse(inun_change == "no_to_no", NA, .x))) %>%
-    distinct() %>%
+                    raw_cell_change, raw_pct_point_change),
+                  ~ ifelse(inun_change == "no_to_no", 0, .x))) %>%
+    distinct()
+
+  # All unique water supplies (base for expansion)
+  all_ws_base <- ws_scenarios %>%
+    st_drop_geometry() %>%
+    select(wsd_source_id, park_unit) %>%
+    distinct()
+
+  # Expand to all water supplies; non-coastal rows get NA for all indicator columns.
+  # group_by(buffer_km): non-coastal rows have buffer_km = NA → their own group;
+  final_results <- all_ws_base %>%
+    left_join(coastal_results, by = "wsd_source_id") %>%
+    group_by(buffer_km) %>%
     add_standardized_indicators("raw_coverage_pct_ref") %>%
     add_standardized_indicators("raw_coverage_pct_proj") %>%
     add_standardized_indicators("raw_cell_change") %>%
-    add_standardized_indicators("raw_pct_point_change")
+    add_standardized_indicators("raw_pct_point_change") %>%
+    ungroup() %>%
+    select(wsd_source_id, park_unit, buffer_km,
+           inun_proj_mm, inun_proj_closest_mm, depth_ft,
+           raw_coverage_pct_ref,  norm_coverage_pct_ref,  rank_coverage_pct_ref,
+           raw_coverage_pct_proj, norm_coverage_pct_proj, rank_coverage_pct_proj,
+           raw_cell_change,       norm_cell_change,       rank_cell_change,
+           raw_pct_point_change,  norm_pct_point_change,  rank_pct_point_change,
+           inun_change, inun_centroid_change)
   
   # Save if requested 
   if (save) {
@@ -323,32 +382,3 @@ calc_inundation_exposure <- function(ws_scenarios = sf::st_read(here("data", "ra
   return(final_results)
   
 }
-
-# old <- read_csv("data/rapid/outputs/inundation_exposure_2026-02-20.csv")
-# new <- read_csv("data/rapid/outputs/kw_inundation_exposure_2026-02-25.csv")
-# 
-# combo <- old %>%
-#   inner_join(new, by = c("buffer_km", "wsd_source_id"), suffix = c("_old", "_new")) %>%
-#   mutate(dif = raw_pct_point_change_new - raw_pct_point_change_old,
-#          abs_dif = abs(dif))
-# 
-# outliers <- combo %>%
-#   filter(is.finite(abs_dif)) %>%
-#   slice_max(abs_dif, n = 20, with_ties = FALSE)
-# 
-# ggplotly(
-#   ggplot(data = combo, aes(x = raw_pct_point_change_old, 
-#                            y = raw_pct_point_change_new,
-#                            text = paste0(
-#                              "wsd_source_id: ", wsd_source_id,
-#                              "<br>buffer_km: ", buffer_km,
-#                              "<br>original: ", round(raw_pct_point_change_old, 2),
-#                              "<br>updated: ", round(raw_pct_point_change_new, 2),
-#                              "<br>dif: ", round(dif, 2)))) +
-#     geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray60") +
-#     geom_point(aes(color = wsd_source_id %in% outliers$wsd_source_id), alpha = 0.8) +
-#     scale_color_manual(values = c(`FALSE` = "gray70", `TRUE` = "red"), guide = "none") +
-#     geom_text_repel(data = outliers, aes(label = wsd_source_id), size = 3, max.overlaps = Inf) +
-#     labs(x = "Original Approach", y = "New Approach"),
-#   tooltip = "text")
-
