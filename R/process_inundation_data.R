@@ -305,7 +305,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   # Water supplies in states with inundation data
   inun_rel_ws <- ws_itf_slr_proj %>%
-    filter(state %in% rel_state_codes, !is.na(inun_proj_mm))
+    filter(state %in% rel_state_codes | source_state %in% rel_state_codes, !is.na(inun_proj_mm))
   
   # Spatially join buffered water supplies against inundation region bounding boxes,
   # (so, sites with multiple candidates exist)
