@@ -11,10 +11,10 @@
 #'
 #' @param ws_scenarios sf object of ALL water supplies right-joined onto buffered
 #'   coastal SLR scenarios. Coastal rows have buffer polygon geometry and SLR
-#'   scenario columns (e.g. `inun_region`, `state`, `ref_file`, `proj_file`,
+#'   scenario columns (e.g. `inun_region`, `ref_file`, `proj_file`,
 #'   `buffer_km`); non-coastal rows have NA geometry and NA SLR columns. Must
 #'   include columns `wsd_source_id`, `park_unit`, `inun_region`,
-#'   `state`, `ref_file`, and `proj_file` (NAs acceptable for non-coastal rows).
+#'   `ref_file`, and `proj_file` (NAs acceptable for non-coastal rows).
 #' @param inundation_raster_data_dir character, path to inundation surface raster
 #'   state subdirectories
 #' @param save logical, whether to save output
@@ -36,9 +36,8 @@ calc_inundation_exposure <- function(ws_scenarios,
                                      save = FALSE,
                                      output_dir = NULL,
                                      verbose = TRUE) {
-  
   # Input validation
-  required_columns <- c("inun_region", "state", "ref_file", "proj_file")
+  required_columns <- c("inun_region", "ref_file", "proj_file")
    
   stopifnot("ws_scenarios must be an sf object" = inherits(ws_scenarios, "sf"),
             "save is TRUE but output_dir not provided" = !save || !is.null(output_dir),
@@ -54,9 +53,9 @@ calc_inundation_exposure <- function(ws_scenarios,
     ungroup() %>% 
     distinct() %>%
     mutate(identity = paste0(wsd_source_id, "-", buffer_km)) %>%
-    select(c(park_unit, state, identity, wsd_source_id, buffer_km, inun_proj_mm,
-             inun_region ,inun_proj_closest_mm, depth_ft, depth_m, inun_surf_url, 
-             proj_file, ref_file, geom)) 
+    select(c(park_unit, identity, wsd_source_id, buffer_km, inun_proj_mm,
+             inun_region, inun_proj_closest_mm, depth_ft, depth_m, inun_surf_url,
+             proj_file, ref_file, geom))
   
   region_list <- ws_scenarios_mod %>% 
     split(f = .$proj_file) 
@@ -70,6 +69,8 @@ calc_inundation_exposure <- function(ws_scenarios,
     )
   }
   
+ 
+  
   # Main loop over regions ====
   ws_inun_stats <- map_dfr(region_list, function(region_sf) {
     
@@ -81,9 +82,7 @@ calc_inundation_exposure <- function(ws_scenarios,
       distinct(proj_file, ref_file) %>%
       mutate(state = substr(proj_file, 1, 2))
     
-    state <- unique(locs_needed$state)
-    
-    # identify IDs with overlapping inundation layers 
+    # identify IDs with overlapping inundation layers
     overlap_ids <-  ws_scenarios_mod %>%
       filter(identity %in% region_sf$identity) %>%
       group_by(identity) %>%
@@ -91,16 +90,16 @@ calc_inundation_exposure <- function(ws_scenarios,
       filter(count > 1) %>%
       pull(identity) %>%
       unique()
-    
+
     overlap_files <- ws_scenarios_mod %>%
       filter(identity %in% region_sf$identity) %>%
       group_by(identity) %>%
       mutate(count = n()) %>%
-      filter(count > 1) 
-    
-    # build full paths to all tiles
-    ref_tiles  <- sort(unique(here(inundation_raster_data_dir, state, locs_needed$ref_file)))
-    proj_tiles <- sort(unique(here(inundation_raster_data_dir, state, locs_needed$proj_file)))
+      filter(count > 1)
+
+    # build full paths to all tiles (using per-row state to avoid recycling mismatches)
+    ref_tiles  <- sort(unique(here(inundation_raster_data_dir, locs_needed$state, locs_needed$ref_file)))
+    proj_tiles <- sort(unique(here(inundation_raster_data_dir, locs_needed$state, locs_needed$proj_file)))
     
     stopifnot(length(ref_tiles)  >= 1, all(file.exists(ref_tiles)))
     stopifnot(length(proj_tiles) >= 1, all(file.exists(proj_tiles)))
@@ -130,7 +129,7 @@ calc_inundation_exposure <- function(ws_scenarios,
 
         stopifnot(length(tile_file) == 1)
 
-        tile_path <- here(inundation_raster_data_dir, state, tile_file)
+        tile_path <- here(inundation_raster_data_dir, substr(tile_file, 1, 2), tile_file)
 
         stopifnot(file.exists(tile_path))
 
@@ -166,7 +165,6 @@ calc_inundation_exposure <- function(ws_scenarios,
     } else {
     batch_counts <- tibble()
     }
-    
     
     # ONE-BY-ONE: overlapping sites may span multiple tiles,
     # so build a mosaic per buffer then use exactextractr
