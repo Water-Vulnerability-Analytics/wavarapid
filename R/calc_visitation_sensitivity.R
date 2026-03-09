@@ -1,6 +1,6 @@
 #' Calculate Historical Visitation Sensitivity Indicator
 #'
-#' Calculates a historical visitation sensitivity indicator for park water supplies
+#' Calculates historical visitation sensitivity indicators for park water supplies
 #' using annual NPS visitation totals. For each park unit, annual visitation is
 #' summarized over the specified historical period and used to estimate historical
 #' visitation trends with Sen's slope and the Mann-Kendall test.
@@ -11,15 +11,13 @@
 #'   representing unique park identifiers for which visitation sensitivity
 #'   indicators will be calculated.
 #' @param start_year Numeric. First year of visitation data to request.
-#'   Defaults to `2010`.
+#'   Defaults to `1990`.
 #' @param end_year Numeric. Last year of visitation data to request.
 #'   Defaults to `2024`.
 #' @param save Logical. If `TRUE`, results are saved to a file in `output_dir`.
-#'   Defaults to `FALSE`.
 #' @param output_dir Optional character string specifying the directory where
 #'   results will be saved if `save = TRUE`.
 #' @param verbose Logical. If `TRUE`, progress messages are printed to the console.
-#'   Defaults to `TRUE`.
 #'
 #' @return
 #' A tibble combining the original `water_supplies` data with historical visitation
@@ -39,7 +37,9 @@ calc_visitation_sensitivity <- function(water_supplies,
   
   start_time <- Sys.time()
   
-  parks <- unique(water_supplies$park_unit)
+  parks <- water_supplies %>%
+    dplyr::distinct(park_unit) %>%
+    dplyr::pull(park_unit)
   
   if (verbose) {
     message("Starting historical visitation sensitivity calculation...")
@@ -49,62 +49,90 @@ calc_visitation_sensitivity <- function(water_supplies,
   visitation_indicators <- function(park_unit) {
     
     visitation <- getUnitVisitation(units = park_unit,
-      startYear = start_year,
-      endYear = end_year)
+                                    startYear = start_year,
+                                    endYear = end_year)
     
     annual_visitation <- visitation %>%
       dplyr::group_by(Year) %>%
-      dplyr::summarize(total_visitation = sum(RecreationVisitors, na.rm = TRUE)) %>%
-      ungroup() %>%
+      dplyr::summarize(total_visitation = sum(RecreationVisitors, na.rm = TRUE),
+                       .groups = "drop") %>%
       dplyr::arrange(Year)
     
     n_years <- sum(!is.na(annual_visitation$total_visitation))
+    raw_avg_visitation <- mean(annual_visitation$total_visitation, na.rm = TRUE)
     
-    sen <- if (n_years >= 3) trend::sens.slope(annual_visitation$total_visitation) else NULL
-    mk  <- if (n_years >= 3) trend::mk.test(annual_visitation$total_visitation) else NULL
+    sen <- if (n_years >= 3) {
+      trend::sens.slope(annual_visitation$total_visitation)
+    } else {
+      NULL
+    }
     
-    raw_sen_slope <- if (is.null(sen)) NA_real_ else sen$estimates[[1]]
-    mk_tau <- if (is.null(mk)) NA_real_ else mk$estimates[[1]]
+    mk <- if (n_years >= 3) {
+      trend::mk.test(annual_visitation$total_visitation)
+    } else {
+      NULL
+    }
+    
+    raw_sen_slope <- if (is.null(sen)) NA_real_ else as.numeric(sen$estimates[[1]])
+    mk_tau <- if (is.null(mk)) NA_real_ else as.numeric(mk$estimates[[1]])
     mk_p_value <- if (is.null(mk)) NA_real_ else mk$p.value
-    mk_significant <- mk_p_value < 0.05
+    mk_significant <- ifelse(is.na(mk_p_value), NA, mk_p_value < 0.05)
     
-    trend_direction <- dplyr::case_when(
-      is.na(raw_sen_slope) ~ NA_character_,
-      raw_sen_slope > 0 ~ "increasing",
-      raw_sen_slope < 0 ~ "decreasing",
-      TRUE ~ "no change"
-    )
+    # annual percent change in visitation relative to a park’s average visitation over the analysis period
+    percent_sen_slope <- ifelse(is.na(raw_sen_slope) | is.na(raw_avg_visitation) | raw_avg_visitation == 0,
+                                NA_real_,
+                                (raw_sen_slope / raw_avg_visitation) * 100)
+    
+    trend_direction <- dplyr::case_when(is.na(raw_sen_slope) ~ NA_character_,
+                                        raw_sen_slope > 0 ~ "increasing",
+                                        raw_sen_slope < 0 ~ "decreasing",
+                                        TRUE ~ "no change")
+    
+    peak_year <- annual_visitation %>%
+      dplyr::filter(total_visitation == max(total_visitation, na.rm = TRUE)) %>%
+      dplyr::pull(Year) %>%
+      paste(collapse = ", ")
     
     tibble::tibble(park_unit = park_unit,
-                   raw_avg_visitation = mean(annual_visitation$total_visitation, na.rm = TRUE),
+                   raw_avg_visitation = raw_avg_visitation,
+                   raw_visitation_slope = raw_sen_slope,
+                   raw_percent_slope_visitation = percent_sen_slope,
+                   mk_tau = mk_tau,
+                   mk_p_value = mk_p_value,
+                   mk_significant = mk_significant,
+                   trend_direction = trend_direction,
                    n_years = n_years,
                    time_range = paste(min(annual_visitation$Year, na.rm = TRUE),
                                       max(annual_visitation$Year, na.rm = TRUE),
                                       sep = "-"),
-                   raw_sen_slope = raw_sen_slope,
-                   mk_p_value = mk_p_value,
-                   mk_significant = mk_significant,
-                   trend_direction = trend_direction,
-                   peak_year = annual_visitation %>%
-                     dplyr::filter(total_visitation == max(total_visitation, na.rm = TRUE)) %>%
-                     dplyr::pull(Year) %>%
-                     paste(collapse = ", "))
+                   peak_year = peak_year)
+    
   }
   
   indicators <- parks %>%
-    purrr::map(purrr::possibly(~ visitation_indicators(.x), otherwise = NULL)) %>%
+    purrr::map(purrr::possibly(
+      ~ visitation_indicators(.x), otherwise = NULL)) %>%
     purrr::keep(~ !is.null(.x)) %>%
     dplyr::bind_rows()
   
-  final_results <- indicators %>%
-    add_standardized_indicators("raw_slope_visitation") %>%
+  final_results <- water_supplies %>%
+    dplyr::select(park_unit, wsd_source_id) %>%
+    dplyr::left_join(indicators, by = "park_unit") %>%
+    add_standardized_indicators("raw_visitation_slope") %>%
+    # annual percent change in visitation relative to a park’s average visitation 
+    # over the analysis period
+    add_standardized_indicators("raw_percent_slope_visitation") %>%
     add_standardized_indicators("raw_avg_visitation") %>%
-    dplyr::left_join(water_supplies, ., by = "park_unit")
+    select(wsd_source_id, park_unit, everything()) 
   
   if (save) {
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     
-    filename <- file.path(output_dir, paste0("visitation_sensitivity_", Sys.Date(), ".csv"))
+    filename <- file.path(
+      output_dir,
+      paste0("visitation_sensitivity_", Sys.Date(), ".csv")
+    )
+    
     readr::write_csv(final_results, filename)
     
     if (verbose) {
