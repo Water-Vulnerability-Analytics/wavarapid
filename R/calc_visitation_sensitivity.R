@@ -122,7 +122,8 @@ calc_visitation_sensitivity <- function(water_supplies,
     # annual percent change in visitation relative to a park’s average visitation 
     # over the analysis period
     add_standardized_indicators("raw_percent_slope_visitation") %>%
-    add_standardized_indicators("raw_avg_visitation") %>%
+    add_standardized_indicators("raw_avg_visitation") %>% 
+    st_drop_geometry() %>%
     select(wsd_source_id, park_unit, everything()) 
   
   if (save) {
