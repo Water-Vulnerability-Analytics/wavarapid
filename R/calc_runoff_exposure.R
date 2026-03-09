@@ -18,8 +18,8 @@
 #' @return tibble with water supply ID, park info, and runoff exposure indicators
 #'
 calc_runoff_exposure <- function(water_supplies,
-                                 runoff_data = "data/rapid/inputs/loca2_mwbm_runoff/",
-                                 hindcast = FALSE,
+                                 runoff_data = "data/rapid/inputs/loca2_runoff_water_supplies/",
+                                 hindcast = TRUE,
                                  historical = c("1981-01-01", "2010-12-31"),
                                  future = c("2035-01-01", "2065-12-31"),
                                  save = FALSE,
@@ -76,7 +76,7 @@ calc_runoff_exposure <- function(water_supplies,
   # grids and times
   process_raw_grid_data <- function(f) {
     
-    raw <- fread(f) %>%
+    raw <- read_parquet(f) %>%
       dplyr::filter(wsd_source_id %in% water_supplies$wsd_source_id)
     
     annual_points <- as.data.table(raw)[
@@ -155,7 +155,8 @@ calc_runoff_exposure <- function(water_supplies,
         bind_rows(hindcast_future) %>%
         group_by(wsd_source_id, park_unit) %>%
         summarize(runoff_historical = mean(total_runoff, na.rm = TRUE),
-                  range_historical = paste0(min(year), "-", end = max(year)))
+                  range_historical = paste0(min(year), "-", max(year)),
+                  .groups = "drop")
       
       future <- combined_data %>% 
         filter(model == ssp_sub$model,
@@ -164,7 +165,8 @@ calc_runoff_exposure <- function(water_supplies,
         filter(year >= future_start_year & year <= future_end_year) %>%
         group_by(wsd_source_id, park_unit) %>%
         summarize(runoff_future = mean(total_runoff, na.rm = TRUE),
-                  period_future = paste0(min(year), "-", end = max(year)))
+                  period_future = paste0(min(year), "-", max(year)),
+                  .groups = "drop")
       
       runoff_change_sub[[i]] <- future %>%
         inner_join(., historical, by = c("wsd_source_id", "park_unit")) %>%
@@ -204,7 +206,8 @@ calc_runoff_exposure <- function(water_supplies,
           bind_rows(model_historical) %>%
           group_by(wsd_source_id, park_unit) %>%
           summarize(runoff_historical = mean(total_runoff, na.rm = TRUE),
-                    range_historical = paste0(min(year), "-", end = max(year)))
+                    range_historical = paste0(min(year), "-", max(year)),
+                    .groups = "drop")
         
         future <- combined_data %>% 
           filter(model == ssp_sub$model,
@@ -213,7 +216,8 @@ calc_runoff_exposure <- function(water_supplies,
           filter(year >= future_start_year & year <= future_end_year) %>%
           group_by(wsd_source_id, park_unit) %>%
           summarize(runoff_future = mean(total_runoff, na.rm = TRUE),
-                    period_future = paste0(min(year), "-", end = max(year)))
+                    period_future = paste0(min(year), "-", max(year)),
+                    .groups = "drop")
         
         runoff_change_sub[[i]] <- future %>%
           inner_join(., historical, by = c("wsd_source_id", "park_unit")) %>%
@@ -270,8 +274,8 @@ calc_runoff_exposure <- function(water_supplies,
     # calculate fraction of models showing decrease
     model_fractions <- runoff_change %>%
       group_by(park_unit, wsd_source_id) %>%
-      summarize(raw_models_showing_decrease_pct = 100 * sum(percent_change < 0, na.rm = TRUE) / n()) %>%
-      ungroup()
+      summarize(raw_models_showing_decrease_pct = 100 * sum(percent_change < 0, na.rm = TRUE) / n(),
+                .groups = "drop")
     
   })})
   
@@ -282,9 +286,9 @@ calc_runoff_exposure <- function(water_supplies,
     left_join(model_fractions, by = c("wsd_source_id", "park_unit")) %>%
     # add standardized indicators using helper function
     add_standardized_indicators("raw_runoff_change", invert = TRUE) %>%
-    add_standardized_indicators("raw_models_showing_decrease") %>%
+    add_standardized_indicators("raw_runoff_models_showing_decrease") %>%
     # reorder columns following standardized pattern
-    select(wsd_source_id, park_unit, park_name, everything())
+    select(wsd_source_id, park_unit, everything())
   
   # Save results
   if (save) {
