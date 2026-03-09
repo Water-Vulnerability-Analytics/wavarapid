@@ -86,7 +86,10 @@ calc_nearby_use_sensitivity <- function(water_supplies,
       mutate(trend_direction = case_when(is.na(raw_slope_nearby_use) ~ NA_character_,
                                          raw_slope_nearby_use > 0 ~ "increasing",
                                          raw_slope_nearby_use < 0 ~ "decreasing",
-                                         TRUE ~ "no change"))
+                                         TRUE ~ "no change"),
+             raw_percent_slope_nearby_use = ifelse(is.na(raw_slope_nearby_use) | is.na(raw_avg_nearby_use) | raw_avg_nearby_use == 0,
+                                               NA_real_,
+                                               (raw_slope_nearby_use / raw_avg_nearby_use) * 100))
     
     
     # Combine all indicators using standardized joins
@@ -94,6 +97,7 @@ calc_nearby_use_sensitivity <- function(water_supplies,
       # add standardized indicators using helper function
       add_standardized_indicators("raw_slope_nearby_use", invert = TRUE) %>%
       add_standardized_indicators("raw_avg_nearby_use") %>%
+      add_standardized_indicators("raw_percent_slope_nearby_use") %>%
       right_join(., points_with_counties, by = "fips") %>%
       # reorder columns following standardized pattern
       select(wsd_source_id, park_unit, everything())

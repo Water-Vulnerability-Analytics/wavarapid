@@ -108,10 +108,14 @@ calc_precip_sensitivity <- function(water_supplies,
     dplyr::mutate(trend_direction = case_when(is.na(raw_slope_precip) ~ NA_character_,
                                               raw_slope_precip > 0 ~ "increasing",
                                               raw_slope_precip < 0 ~ "decreasing",
-                                              TRUE ~ "no change")) %>%
+                                              TRUE ~ "no change"),
+                  raw_percent_slope_precip = ifelse(is.na(raw_slope_precip) | is.na(raw_avg_precip) | raw_avg_precip == 0,
+                                                    NA_real_,
+                                                    (raw_slope_precip / raw_avg_precip) * 100)) %>%
     # add standardized indicators using helper function
     add_standardized_indicators("raw_slope_precip", invert = TRUE) %>%
     add_standardized_indicators("raw_avg_precip") %>%
+    add_standardized_indicators("raw_percent_slope_precip", invert = TRUE) %>%
     # reorder columns following standardized pattern
     select(wsd_source_id, park_unit, everything())
   

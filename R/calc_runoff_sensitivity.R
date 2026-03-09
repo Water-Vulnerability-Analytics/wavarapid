@@ -108,10 +108,14 @@ calc_runoff_sensitivity <- function(water_supplies,
     mutate(trend_direction = case_when(is.na(raw_slope_runoff) ~ NA_character_,
                                        raw_slope_runoff > 0 ~ "increasing",
                                        raw_slope_runoff < 0 ~ "decreasing",
-                                       TRUE ~ "no change")) %>%
+                                       TRUE ~ "no change"),
+           raw_percent_slope_runoff = ifelse(is.na(raw_slope_runoff) | is.na(raw_avg_runoff) | raw_avg_runoff == 0,
+                                                 NA_real_,
+                                                 (raw_slope_runoff / raw_avg_runoff) * 100)) %>%
     # add standardized indicators using helper function
     add_standardized_indicators("raw_slope_runoff", invert = TRUE) %>%
     add_standardized_indicators("raw_avg_runoff") %>%
+    add_standardized_indicators("raw_percent_slope_runoff", invert = TRUE) %>%
     # reorder columns following standardized pattern
     select(wsd_source_id, park_unit, everything())
   
