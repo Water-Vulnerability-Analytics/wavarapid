@@ -68,9 +68,7 @@ calc_inundation_exposure <- function(ws_scenarios,
       width  = 80
     )
   }
-  
  
-  
   # Main loop over regions ====
   ws_inun_stats <- map_dfr(region_list, function(region_sf) {
     
@@ -135,6 +133,15 @@ calc_inundation_exposure <- function(ws_scenarios,
 
         rast <- terra::rast(tile_path)
 
+        # exactextractr::exact_extract returns one row per raster cell that
+        # intersects the polygon, regardless of whether the cell value is NA.
+        # This is correct for NOAA inundation rasters where NA = non-inundated:
+        # nrow(df) gives the true total cell count (denominator) and
+        # sum(!is.na(df$value)) counts only flooded cells (numerator).
+        # The batch path therefore handles all-NA (non-inundated) tiles correctly
+        # without any special-casing — unlike the one-by-one mosaic path (see
+        # prep_tile above), which previously discarded all-NA tiles and lost
+        # those cells from the total denominator.
         extracted <- suppressWarnings(
           exactextractr::exact_extract(rast, batch_sf, progress = FALSE)
         )
@@ -201,7 +208,12 @@ calc_inundation_exposure <- function(ws_scenarios,
 
           out <- NULL
 
-          # fxn to crop and mask a single raster tile to a buffer polygon
+          # fxn to crop and mask a single raster tile to a buffer polygon.
+          # NOAA inundation rasters use NA to represent non-inundated cells, so an
+          # all-NA tile is valid: it means the buffer overlaps the tile extent but
+          # no flooding occurs there. We must NOT return NULL for all-NA tiles —
+          # doing so would exclude those cells from the total count, inflating the
+          # coverage percentage (or producing NA totals) for multi-tile water supplies.
           prep_tile <- function(r_path, b_sf) {
 
             r0 <- terra::rast(r_path)
@@ -209,11 +221,12 @@ calc_inundation_exposure <- function(ws_scenarios,
 
             r1 <- tryCatch(terra::crop(r0, b_projected), error = function(e) NULL)
             if (is.null(r1) || !inherits(r1, "SpatRaster")) return(NULL)
-            if (terra::ncell(r1) == 0 || all(is.na(terra::values(r1)))) return(NULL)
+            if (terra::ncell(r1) == 0) return(NULL)  # truly outside tile extent
 
             r2 <- tryCatch(terra::mask(r1, terra::vect(b_projected)), error = function(e) NULL)
             if (is.null(r2) || !inherits(r2, "SpatRaster")) return(NULL)
-            if (all(is.na(terra::values(r2)))) return(NULL)
+            # Do NOT filter all-NA r2: an all-NA masked tile means zero flooding
+            # in this tile, but its cells must still count toward the total denominator.
 
             return(r2)
 
@@ -226,6 +239,22 @@ calc_inundation_exposure <- function(ws_scenarios,
             if (!is.null(t) && inherits(t, "SpatRaster")) tile_list[[length(tile_list) + 1]] <- t
           }
           if (length(tile_list) > 0) {
+            # Normalize resolutions before mosaicking: NOAA tiles from adjacent
+            # regions can have different pixel sizes (across-region differences
+            # of up to ~6e-6 degrees, plus floating-point jitter of ~1e-7 within
+            # the same nominal family) that cause terra::mosaic to error with
+            # "resolution does not match". Resample all tiles to the coarsest
+            # resolution among the set — this avoids fabricating sub-pixel
+            # detail that doesn't exist in the coarser source. Nearest-neighbour
+            # is used to preserve NA = non-inundated cell semantics.
+            if (length(tile_list) > 1) {
+              coarsest_idx <- which.max(sapply(tile_list, function(t) terra::res(t)[1]))
+              template     <- tile_list[[coarsest_idx]]
+              tile_list    <- lapply(tile_list, function(t) {
+                if (isTRUE(all.equal(terra::res(t), terra::res(template)))) return(t)
+                terra::resample(t, template, method = "near")
+              })
+            }
             out <- tryCatch(
               terra::mosaic(terra::sprc(tile_list), fun = "max"),
               error = function(e) {
