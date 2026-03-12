@@ -45,7 +45,7 @@ calc_precip_exposure <- function(water_supplies,
   if(hindcast == FALSE){
     # if we want to use training data... select associated files
     files <- list.files(precip_data, full.names = TRUE) %>%
-      grep("2015-2100|training", ., value = TRUE)
+      grep("2015|2045|2075livneh_unsplit", ., value = TRUE)
     
   } else if(hindcast == TRUE){
     # if we want to use hindcast climate data... 
@@ -76,6 +76,12 @@ calc_precip_exposure <- function(water_supplies,
     
     raw <- read_parquet(f) %>%
       dplyr::filter(wsd_source_id %in% water_supplies$wsd_source_id)
+    
+    # when using observed data, get rid of the modeled data 
+    # that overlaps with observed record
+    if (!grepl("livneh_unsplit", f) && hindcast == FALSE) {
+      raw <- raw[year(date) >= 2019]
+    }
     
     annual_points <- as.data.table(raw)[
       , year := as.integer(format(date, "%Y"))
@@ -115,12 +121,21 @@ calc_precip_exposure <- function(water_supplies,
       , c("var", "model", "ssp", "run", "nc", "misc1", "misc2", "misc3" ) := tstrsplit(nc_file, "\\.")
     ]
     
+  # ssp populate with "livneh" for hindcast = FALSE (as in, no ssp)
+    combined_data[
+      is.na(ssp) | ssp == "",
+      ssp := dplyr::case_when(
+        grepl("livneh_unsplit", nc_file, ignore.case = TRUE) ~ "historical",
+        TRUE ~ stringr::str_extract(nc_file, "ssp\\d+")
+      )
+    ]
+    
     # Split run/time if present
     combined_data[
       !is.na(run), c("run", "time") := tstrsplit(run, "_", fixed = TRUE)
     ]
   })})
-  
+    
   # Drop unnecessary columns
   combined_data[, c("var", "nc") := NULL]
   
@@ -272,7 +287,7 @@ calc_precip_exposure <- function(water_supplies,
     # calculate fraction of models showing decrease
     model_fractions <- precipitation_change %>%
       group_by(park_unit, wsd_source_id) %>%
-      summarize(raw_models_showing_decrease_pct = 100 * sum(percent_change < 0, na.rm = TRUE) / n(),
+      summarize(raw_precip_models_showing_decrease = 100 * sum(percent_change < 0, na.rm = TRUE) / n(),
                 .groups = "drop")
     
   })})
