@@ -63,8 +63,8 @@ calc_nearby_use_sensitivity <- function(water_supplies,
       summarize(total_withdrawal = sum(withdrawal, na.rm = TRUE), .groups = "drop")
       
     county_trends <- use_historic %>%
-      arrange(state_name, county_nm, fips, year) %>%
       group_by(state_name, county_nm, fips) %>%
+      arrange(year, .by_group = TRUE) %>%
       summarize(raw_avg_nearby_use = mean(total_withdrawal, na.rm = TRUE),
                 data = list(dplyr::pick(dplyr::everything())),
                 .groups = "drop") %>%
