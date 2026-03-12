@@ -60,10 +60,9 @@ calc_nearby_use_sensitivity <- function(water_supplies,
       filter(fips %in% unique(points_with_counties$fips)) %>%
       pivot_longer(c(aq, dp, ic, ir, ls, th), names_to = "sector", values_to = "withdrawal") %>%
       group_by(state_name, county_nm, fips, year) %>%
-      summarize(total_withdrawal = sum(withdrawal, na.rm = TRUE), .groups = "drop") 
-    
+      summarize(total_withdrawal = sum(withdrawal, na.rm = TRUE), .groups = "drop")
+      
     county_trends <- use_historic %>%
-      ungroup() %>%
       arrange(state_name, county_nm, fips, year) %>%
       group_by(state_name, county_nm, fips) %>%
       summarize(raw_avg_nearby_use = mean(total_withdrawal, na.rm = TRUE),
@@ -95,7 +94,7 @@ calc_nearby_use_sensitivity <- function(water_supplies,
     # Combine all indicators using standardized joins
     final_results <- county_trends %>%
       # add standardized indicators using helper function
-      add_standardized_indicators("raw_slope_nearby_use", invert = TRUE) %>%
+      add_standardized_indicators("raw_slope_nearby_use") %>%
       add_standardized_indicators("raw_avg_nearby_use") %>%
       add_standardized_indicators("raw_percent_slope_nearby_use") %>%
       right_join(., points_with_counties, by = "fips") %>%
