@@ -114,7 +114,7 @@ calc_precip_sensitivity <- function(water_supplies,
                                                     (raw_slope_precip / raw_avg_precip) * 100)) %>%
     # add standardized indicators using helper function
     add_standardized_indicators("raw_slope_precip", invert = TRUE) %>%
-    add_standardized_indicators("raw_avg_precip") %>%
+    add_standardized_indicators("raw_avg_precip", invert = TRUE) %>%
     add_standardized_indicators("raw_percent_slope_precip", invert = TRUE) %>%
     # reorder columns following standardized pattern
     select(wsd_source_id, park_unit, everything())
