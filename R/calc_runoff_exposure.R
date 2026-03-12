@@ -274,7 +274,7 @@ calc_runoff_exposure <- function(water_supplies,
     # calculate fraction of models showing decrease
     model_fractions <- runoff_change %>%
       group_by(park_unit, wsd_source_id) %>%
-      summarize(raw_models_showing_decrease_pct = 100 * sum(percent_change < 0, na.rm = TRUE) / n(),
+      summarize(raw_runoff_models_showing_decrease = 100 * sum(percent_change < 0, na.rm = TRUE) / n(),
                 .groups = "drop")
     
   })})
