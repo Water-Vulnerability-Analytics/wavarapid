@@ -18,10 +18,10 @@
 #' @param verbose logical, whether to print progress and timing messages. Default is `TRUE`.
 
 calc_nearby_use_sensitivity <- function(water_supplies,
-                                         observed_use = fread("data/all/RPAWaterDemand/1_BaseData/Trash 2022/usgswithdrawals.csv"), #precompiled data from USFS
-                                         save = FALSE,
-                                         output_dir = NULL,
-                                         verbose = TRUE) {
+                                        observed_use = fread("data/all/RPAWaterDemand/1_BaseData/Trash 2022/usgswithdrawals.csv"), #precompiled data from USFS
+                                        save = FALSE,
+                                        output_dir = NULL,
+                                        verbose = TRUE) {
   
   # Input validation
   stopifnot(
@@ -35,11 +35,13 @@ calc_nearby_use_sensitivity <- function(water_supplies,
     
     counties <- counties(cb = TRUE, year = 2019)
     
-    counties <- st_transform(counties, st_crs(water_supplies))
+    counties <- st_transform(counties, st_crs(water_supplies)) %>%
+      mutate(fips = as.numeric(paste0(STATEFP, COUNTYFP)),
+             county_area_km2 = as.numeric(st_area(st_transform(geometry, 5070))) / 1000000)
     
     points_with_counties <- st_join(water_supplies, counties, join = st_nearest_feature) %>%
       mutate(fips = as.numeric(paste0(STATEFP, COUNTYFP))) %>%
-      select(park_unit, wsd_source_id, fips)
+      select(park_unit, wsd_source_id, fips, county_area_km2)
     
     # aq = aquaculture; dp = domestic; ic = industrial + mining; ir = irrigated agriculture; ls = livestock; th = thermoelectric
     #1985-2015 observed data:
@@ -60,12 +62,16 @@ calc_nearby_use_sensitivity <- function(water_supplies,
       filter(fips %in% unique(points_with_counties$fips)) %>%
       pivot_longer(c(aq, dp, ic, ir, ls, th), names_to = "sector", values_to = "withdrawal") %>%
       group_by(state_name, county_nm, fips, year) %>%
-      summarize(total_withdrawal = sum(withdrawal, na.rm = TRUE), .groups = "drop")
-      
+      summarize(total_withdrawal = sum(withdrawal, na.rm = TRUE), .groups = "drop") %>%
+      left_join(points_with_counties %>% st_drop_geometry() %>% distinct(fips, county_area_km2),
+                by = "fips") %>%
+      mutate(total_withdrawal_per_km2 = total_withdrawal / county_area_km2)
+    
     county_trends <- use_historic %>%
       group_by(state_name, county_nm, fips) %>%
       arrange(year, .by_group = TRUE) %>%
       summarize(raw_avg_nearby_use = mean(total_withdrawal, na.rm = TRUE),
+                raw_avg_nearby_use_per_km2 = mean(total_withdrawal_per_km2, na.rm = TRUE),
                 data = list(dplyr::pick(dplyr::everything())),
                 .groups = "drop") %>%
       mutate(n_years = map_int(data, ~ sum(!is.na(.x$total_withdrawal))),
@@ -73,22 +79,34 @@ calc_nearby_use_sensitivity <- function(water_supplies,
                x <- .x$total_withdrawal
                if (sum(!is.na(x)) >= 3) sens.slope(x) else NULL
              }),
+             sen_per_km2 = map(data, ~ {
+               x <- .x$total_withdrawal_per_km2
+               if (sum(!is.na(x)) >= 3) sens.slope(x) else NULL
+             }),
              mk = map(data, ~ {
                x <- .x$total_withdrawal
                if (sum(!is.na(x)) >= 3) mk.test(x) else NULL
              }),
              raw_slope_nearby_use = map_dbl(sen, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
+             raw_slope_nearby_use_per_km2 = map_dbl(sen_per_km2, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
              mk_tau = map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
              mk_p_value = map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$p.value),
              mk_significant = mk_p_value < 0.05) %>%
-      select(-data, -sen, -mk, -mk_p_value, -mk_tau) %>%
+      select(-data, -sen, -sen_per_km2, -mk, -mk_p_value, -mk_tau) %>%
       mutate(trend_direction = case_when(is.na(raw_slope_nearby_use) ~ NA_character_,
                                          raw_slope_nearby_use > 0 ~ "increasing",
                                          raw_slope_nearby_use < 0 ~ "decreasing",
                                          TRUE ~ "no change"),
+             trend_direction_per_km2 = case_when(is.na(raw_slope_nearby_use_per_km2) ~ NA_character_,
+                                                 raw_slope_nearby_use_per_km2 > 0 ~ "increasing",
+                                                 raw_slope_nearby_use_per_km2 < 0 ~ "decreasing",
+                                                 TRUE ~ "no change"),
              raw_percent_slope_nearby_use = ifelse(is.na(raw_slope_nearby_use) | is.na(raw_avg_nearby_use) | raw_avg_nearby_use == 0,
-                                               NA_real_,
-                                               (raw_slope_nearby_use / raw_avg_nearby_use) * 100))
+                                                   NA_real_,
+                                                   (raw_slope_nearby_use / raw_avg_nearby_use) * 100),
+             raw_percent_slope_nearby_use_per_km2 = ifelse(is.na(raw_slope_nearby_use_per_km2) | is.na(raw_avg_nearby_use_per_km2) | raw_avg_nearby_use_per_km2 == 0,
+                                                           NA_real_,
+                                                           (raw_slope_nearby_use_per_km2 / raw_avg_nearby_use_per_km2) * 100))
     
     
     # Combine all indicators using standardized joins
@@ -97,7 +115,10 @@ calc_nearby_use_sensitivity <- function(water_supplies,
       add_standardized_indicators("raw_slope_nearby_use") %>%
       add_standardized_indicators("raw_avg_nearby_use") %>%
       add_standardized_indicators("raw_percent_slope_nearby_use") %>%
-      right_join(., points_with_counties, by = "fips") %>%
+      add_standardized_indicators("raw_slope_nearby_use_per_km2") %>%
+      add_standardized_indicators("raw_avg_nearby_use_per_km2") %>%
+      add_standardized_indicators("raw_percent_slope_nearby_use_per_km2") %>%
+      right_join(., points_with_counties %>% st_drop_geometry(), by = "fips") %>%
       # reorder columns following standardized pattern
       select(wsd_source_id, park_unit, everything())
     
