@@ -1,4 +1,4 @@
-#' Process NetCDF files for runoff data extraction
+#' Process NetCDF files for LOCA2 water balance data extraction
 #' 
 #' @param nc_path path to NetCDF files - found in "data/all/loca2_mwbm/"
 #' @param water_supplies sf object with point locations  
@@ -13,10 +13,10 @@
 #' 
 process_loca2_mwbm <- function(nc_path,
                                water_supplies,
-                               var = "runoff",
+                               var, # can be "runoff", "pr", "swe", 
                                historical = c("1980-01-01", "2024-12-31"),
                                future = c("2035-01-01", "2065-12-31"),
-                               output_dir = "data/rapid/inputs/loca2_mwbm_runoff/") {
+                               output_dir){ 
   
   message(paste0("Starting vectorized extraction of ", nc_path))
   
@@ -25,9 +25,29 @@ process_loca2_mwbm <- function(nc_path,
   # open using ncdf4 package: 
   nc <- nc_open(nc_path)
   
+  # some renaming required
+  if(var == "pr" & !grepl("alder", nc_path, ignore.case = TRUE)){
+    var <- "pr_tavg"
+  } 
+  
+  if(var == "pr_tavg" & grepl("livneh_unsplit_precip", nc_path, ignore.case = TRUE)){
+    var <- "PRCP"
+  } 
+  
+  if(var == "tasmin_tavg" & grepl("lusu", nc_path, ignore.case = TRUE)){
+    var <- "Tmin"
+  } 
+  
+  if(var == "tasmax_tavg" & grepl("lusu", nc_path, ignore.case = TRUE)){
+    var <- "Tmax"
+  } 
+  
+  if(var == "swe"){
+    var <- "snow"
+  } 
+  
   # grab layer of user-selected variable
   v <- nc$var[[var]]
-  nc  <- nc_open(nc_path)
   lon <- ncvar_get(nc, "lon")
   lat <- ncvar_get(nc, "lat")
   
@@ -44,19 +64,20 @@ process_loca2_mwbm <- function(nc_path,
   #   st_as_sf(coords = c("lon", "lat"), crs = st_crs(rast(nc_path)))
   
   # get time units 
-  time_seq <-  ncvar_get(nc, "time")
-  time_units <- nc$dim[["time"]]$units
+  time_seq <-  if(var == "PRCP"){ncvar_get(nc, "Time")} else {ncvar_get(nc, "time") }
+  time_units <- if(var == "PRCP"){nc$dim[["Time"]]$units} else {nc$dim[["time"]]$units}
+  start_time_date <- ymd(sub(".*since\\s+", "", time_units))
   
   # Filter time indices based on units
   time_indices_to_keep <- seq_along(time_seq)  
   
-  if (!is.na(time_units) && grepl("days since 1950-01-01", time_units, ignore.case = TRUE)) {
+  if (!is.na(time_units) && grepl("days since", time_units, ignore.case = TRUE)) {
     message(sprintf("Filtering to %s to %s and %s to %s periods", 
                     historical[1], historical[2], future[1], future[2]))
     
-    # convert date boundaries to days since 1950-01-01
+    # convert date boundaries to days since start_time_date
     # (how these cdf files record times)
-    origin_date <- as.Date("1950-01-01")
+    origin_date <- as.Date(start_time_date)
     
     # Use the historical and future arguments
     start_historical <- as.numeric(as.Date(historical[1]) - origin_date)
@@ -135,7 +156,7 @@ process_loca2_mwbm <- function(nc_path,
   message(sprintf("Extracting %d locations across %d time steps...", n_extractions, nt))
   
   # If we have filtered time indices, we need a different approach
-  if (length(time_indices_to_keep) < length(ncvar_get(nc, "time"))) {
+  if (length(time_indices_to_keep) < length(time_seq)) {
     # Read all filtered time steps at once by reading the full array and subsetting
     message("Reading filtered time data...")
     
@@ -252,7 +273,7 @@ process_loca2_mwbm <- function(nc_path,
     nc_file = basename(nc_path),
     cell_lon = as.character(cell_lon),
     cell_lat = as.character(cell_lat),
-    date = as.Date("1950-01-01") + as.numeric(time),  # Convert days since 1950-01-01 to date
+    date = as.Date(start_time_date) + as.numeric(time),  # Convert days since start_time_date
     time_index = NULL 
   )]
   
@@ -262,8 +283,13 @@ process_loca2_mwbm <- function(nc_path,
     dir.create(output_dir, recursive = TRUE)
   }
   
-  write_csv(results_dt, paste0(output_dir, basename(nc_path), ".csv"))
-  
+  if(var %in% c("Tmin", "Tmax")){
+  write_parquet(results_dt, paste0(output_dir, basename(nc_path), "_", var, ".parquet"))
+  } else {
+    
+    write_parquet(results_dt, paste0(output_dir, basename(nc_path), ".parquet"))
+    
+  }
   nc_close(nc)
   gc()
 }
