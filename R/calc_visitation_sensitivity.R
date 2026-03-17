@@ -79,6 +79,7 @@ calc_visitation_sensitivity <- function(water_supplies,
     mk_significant <- ifelse(is.na(mk_p_value), NA, mk_p_value < 0.05)
     
     # annual percent change in visitation relative to a park’s average visitation over the analysis period
+    # calling "scaled_trend"
     percent_sen_slope <- ifelse(is.na(raw_sen_slope) | is.na(raw_avg_visitation) | raw_avg_visitation == 0,
                                 NA_real_,
                                 (raw_sen_slope / raw_avg_visitation) * 100)
@@ -96,7 +97,7 @@ calc_visitation_sensitivity <- function(water_supplies,
     tibble::tibble(park_unit = park_unit,
                    raw_avg_visitation = raw_avg_visitation,
                    raw_visitation_slope = raw_sen_slope,
-                   raw_percent_slope_visitation = percent_sen_slope,
+                   raw_scaled_trend_visitation = percent_sen_slope,
                    mk_tau = mk_tau,
                    mk_p_value = mk_p_value,
                    mk_significant = mk_significant,
@@ -121,7 +122,7 @@ calc_visitation_sensitivity <- function(water_supplies,
     add_standardized_indicators("raw_visitation_slope") %>%
     # annual percent change in visitation relative to a park’s average visitation 
     # over the analysis period
-    add_standardized_indicators("raw_percent_slope_visitation") %>%
+    add_standardized_indicators("raw_scaled_trend_visitation") %>%
     add_standardized_indicators("raw_avg_visitation") %>% 
     st_drop_geometry() %>%
     select(wsd_source_id, park_unit, everything()) 
