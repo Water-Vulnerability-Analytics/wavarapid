@@ -125,7 +125,7 @@ calc_inundation_exposure <- function(ws_scenarios,
 
         tile_file <- unique(region_sf[[file_col]])
 
-        stopifnot(length(tile_file) == 1)
+        stopifnot("batch path expects exactly one tile per scenario — proj_file split should guarantee this" = length(tile_file) == 1)
 
         tile_path <- here(inundation_raster_data_dir, substr(tile_file, 1, 2), tile_file)
 
@@ -361,7 +361,7 @@ calc_inundation_exposure <- function(ws_scenarios,
            raw_total_cells_ref, raw_flooded_cells_ref, raw_coverage_pct_ref,
            raw_total_cells_proj, raw_flooded_cells_proj, raw_coverage_pct_proj,
            raw_cell_change, raw_pct_point_change, inun_change, inun_centroid_change) %>%
-    mutate(across(c(raw_total_cells_ref, raw_flooded_cells_ref,
+    mutate(across(c(raw_total_cells_ref, raw_flooded_cells_ref, raw_coverage_pct_ref,
                     raw_total_cells_proj, raw_flooded_cells_proj, raw_coverage_pct_proj,
                     raw_cell_change, raw_pct_point_change),
                   ~ ifelse(inun_change == "no_to_no", 0, .x))) %>%
