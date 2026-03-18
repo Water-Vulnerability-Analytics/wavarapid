@@ -48,19 +48,27 @@ calc_fire_exposure <- function(water_supplies,
     if (verbose) pb$tick()
     
     # Get water supply pyrome
-    # ws_pyrome <- pyrome_data %>% 
-    #   st_filter(water_supplies[i, ])
     ws_pyrome <- pyrome_data[relate(pyrome_data, water_supplies[i,], "intersects"), ]
+    
+    # Fall back to nearest pyrome for water supplies outside pyrome coverage (e.g., non-CONUS)
+    if (nrow(ws_pyrome) == 0) {
+      nearest_idx <- terra::nearest(water_supplies[i, ], pyrome_data)$to_id
+      ws_pyrome <- pyrome_data[nearest_idx, ]
+    }    
     
     # Extract fire probability data for this pyrome
     fp_data <- fire_prob_data %>% 
-      filter(PYROME == ws_pyrome$PYROME) %>% 
-      select(delta_fp_p10, delta_fp_p50, delta_fp_p90) %>% 
+      filter(PYROME %in% ws_pyrome$PYROME) %>%
+      summarise(
+        delta_fp_p10 = mean(delta_fp_p10, na.rm = TRUE),
+        delta_fp_p50 = mean(delta_fp_p50, na.rm = TRUE),
+        delta_fp_p90 = mean(delta_fp_p90, na.rm = TRUE)
+      ) %>%
       mutate(
         wsd_source_id = water_supplies[i, ]$wsd_source_id,
         park_unit = water_supplies[i, ]$park_unit,
         park_name = water_supplies[i, ]$park_name
-      ) %>% 
+      ) %>%
       select(wsd_source_id, park_unit, park_name, everything())
     
     return(fp_data)
