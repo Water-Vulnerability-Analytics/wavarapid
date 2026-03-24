@@ -142,8 +142,9 @@ calc_inundation_exposure <- function(ws_scenarios,
         # without any special-casing — unlike the one-by-one mosaic path (see
         # prep_tile above), which previously discarded all-NA tiles and lost
         # those cells from the total denominator.
+        # Explicitly reproject batch_sf to match the raster.
         extracted <- suppressWarnings(
-          exactextractr::exact_extract(rast, batch_sf, progress = FALSE)
+          exactextractr::exact_extract(rast, sf::st_transform(batch_sf, terra::crs(rast)), progress = FALSE)
         )
 
         counts_list[[scenario]] <- data.frame(identity = batch_sf$identity,

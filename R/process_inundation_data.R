@@ -90,7 +90,10 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   # read in nc file as a raster with terra
   projections_raster <- terra::rast(inundation_projections_path)
   
-  # assign projection manually
+  # The NetCDF has no embedded CRS attribute (terra::crs() returns ""), but the
+  # dimension metadata confirms geographic coordinates: lat ∈ [-90, 90] and
+  # lon ∈ [0, 359] in degrees on a 1° global grid. WGS84 geographic (EPSG:4326)
+  # is the correct assignment per the ITF technical report conventions.
   terra::crs(projections_raster) <- "+proj=longlat +datum=WGS84 +no_defs"
   
   # pick the projection that we want from this raster
@@ -118,8 +121,13 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   # Now that we have the buffered water supply points and the ITF SLR gridded projections
   # we can join them together to find the SLR projections for each of our water supply points.
   
-  # Extract the inundation projections specific to each water supply
-  water_supply_inundation_values <- terra::extract(final_itf_slr_proj, transformed_ws)
+  # Extract the inundation projections specific to each water supply.
+  # transformed_ws is in EPSG 5070 (Conus Albers); final_itf_slr_proj is in
+  # WGS84. Explicitly reproject the vector to match the raster before extraction.
+  water_supply_inundation_values <- terra::extract(
+    final_itf_slr_proj,
+    sf::st_transform(transformed_ws, terra::crs(final_itf_slr_proj))
+  )
   
   # Join water supply inundation projections to the water supply buffer data frame
   ws_itf_slr_proj <- left_join(all_buffer_ws, water_supply_inundation_values, by = "ID") %>%
