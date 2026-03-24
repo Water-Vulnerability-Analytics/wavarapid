@@ -196,7 +196,8 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
     mutate(depth_ft  = as.numeric(depth_ft),
            depth_m   = depth_ft * 0.3048,
            depth_mm  = round(depth_m * 1000, 1),
-           inun_region = str_remove(file, "_[0-9_]+\\.tif$")) %>%
+           inun_region = str_remove(file, "_[0-9_]+\\.tif$"),
+           inun_region = str_remove(inun_region, "_connectRaster|_connnectRaster")) %>%
     select(url, file = raw_file, state, inun_region, depth_ft, depth_m, depth_mm) %>%
     filter(!state %in% c("AK", "AS", "HI", "MP", "PR", "VI", "Guam", "CNMI", "USVI"))
   
@@ -252,7 +253,9 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
       })
   }
   
-  reference_tif_df <- tif_df %>% filter(depth_mm == 0.0)
+  reference_tif_df <- tif_df %>% 
+    group_by(inun_region) %>%
+    slice_min(depth_ft)
   
   download_NOAA_inun_slr_tif_data(tif_url_df = reference_tif_df,
                                   save_dir = here(output_dir, "Extent_Rasters"))
@@ -271,14 +274,15 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   # Make a list of the file paths of the reference inundation surfaces
   raster_f <- list.files(path = here(output_dir, "Extent_Rasters"),
-                         pattern = "_0(_0)?(_Redacted)?\\.tif$",
                          full.names = TRUE,
                          recursive = TRUE)
+  
+  raster_f <- raster_f[basename(raster_f) %in% reference_tif_df$file]
   
   # Generate inundation region bounding boxes from the downloaded reference rasters
   inun_region_bboxs <- map(raster_f, function(f) {
     region_name <- tools::file_path_sans_ext(basename(f))
-    region_name <- sub("connectRaster.*", "connectRaster", region_name)
+    region_name <- sub("_connectRaster.*", "", region_name)
     
     rast    <- terra::rast(f)
     bbox_sf <- sf::st_as_sf(sf::st_as_sfc(sf::st_bbox(rast))) %>%
@@ -300,16 +304,9 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
                here(coast_dir_path, "NOAA_SLRV_2022", "inundation_data", "inun_region_bboxs.gpkg"),
                delete_dsn = TRUE)
   
-  # Derive relevant state codes from the bboxes
-  rel_state_codes <- unique(inun_region_bboxs$state)
-  
-  # Water supplies in states with inundation data
-  inun_rel_ws <- ws_itf_slr_proj %>%
-    filter(state %in% rel_state_codes | source_state %in% rel_state_codes, !is.na(inun_proj_mm))
-  
-  # Spatially join buffered water supplies against inundation region bounding boxes,
-  # (so, sites with multiple candidates exist)
-  ws_inun_joined <- sf::st_join(inun_rel_ws,
+  # Spatially join buffered water supplies against inundation region bounding boxes.
+  # Sites with multiple candidates exist.
+  ws_inun_joined <- sf::st_join(ws_itf_slr_proj,
                                 inun_region_bboxs %>%
                                   rename(inun_state = state) %>%
                                   select(inun_region, inun_state),
@@ -334,7 +331,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
                                             TRUE ~ NA_real_)) %>%
     relocate(inun_proj_closest_mm, .after = inun_proj_mm)
   
-  rm(ws_inun_joined, inun_rel_ws)
+  rm(ws_inun_joined)
   gc()
   
   # Second, we will use the region and SLR scenario information to download only the
@@ -343,13 +340,12 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   relevant_ws_inun_proj <- ws_inun_regions %>%
     drop_na(inun_proj_closest_mm) %>%
     select(depth_mm = inun_proj_closest_mm, inun_region) %>%
-    # CA EKA region is only available in 1 foot increments, so we specify that here
-    mutate(depth_mm = ifelse(inun_region == "CA_EKA_connectRaster", 609.6, depth_mm),
-           depth_mm = round(depth_mm, 1)) %>%
+    mutate(depth_mm = round(depth_mm, 1)) %>%
     distinct(depth_mm, inun_region)
   
   download_tif_df <- relevant_ws_inun_proj %>%
-    left_join(tif_df, by = c("inun_region", "depth_mm"))
+    left_join(tif_df, by = c("inun_region", "depth_mm")) %>%
+    drop_na(url)
   
   download_NOAA_inun_slr_tif_data(tif_url_df = download_tif_df,
                                   save_dir = here(output_dir, "Extent_Rasters"))
@@ -372,14 +368,14 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   updated_ws_inun_proj <- ws_itf_slr_proj %>%
     inner_join(ws_inun_regions %>% st_drop_geometry() %>% select(ID, buffer_km, inun_region, inun_proj_closest_mm),
                by = c("ID", "buffer_km")) %>%
-    left_join(download_tif_df,
-              by = c("source_state" = "state", "inun_region", "inun_proj_closest_mm" = "depth_mm")) %>%
-    left_join(reference_tif_df %>% select(state, inun_region, reference_file = file),
-              by = c("inun_region", "source_state" = "state")) %>%
+    left_join(download_tif_df %>% select(-state),
+              by = c("inun_region", "inun_proj_closest_mm" = "depth_mm")) %>%
+    left_join(reference_tif_df %>% select(inun_region, reference_file = file),
+              by = "inun_region") %>%
     rename(inun_surf_url = url, proj_file = file, ref_file = reference_file) %>%
     relocate(depth_ft, depth_m, .after = inun_proj_closest_mm) %>%
     relocate(geometry, .after = last_col()) %>%
-    filter(!is.na(ref_file))
+    filter(!is.na(ref_file), !is.na(proj_file))
   
   sf::st_write(updated_ws_inun_proj,
                here(output_dir, "buff_ws_inun_regions.gpkg"), # Buffered water supplies with inundation regions
@@ -387,8 +383,8 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   # Environment clean up
   rm(ws_inun_regions, download_tif_df, reference_tif_df, relevant_ws_inun_proj,
-     inun_region_bboxs, raster_f, rel_state_codes, tif_df, all_buffer_ws,
-     final_itf_slr_proj, ws_itf_slr_proj)
+     inun_region_bboxs, raster_f, tif_df, all_buffer_ws, final_itf_slr_proj, 
+     ws_itf_slr_proj)
   gc()
   
   # Now we have the appropriate data to determine what the difference in inundation risk will be.
