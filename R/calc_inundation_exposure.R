@@ -11,10 +11,10 @@
 #'
 #' @param ws_scenarios sf object of ALL water supplies right-joined onto buffered
 #'   coastal SLR scenarios. Coastal rows have buffer polygon geometry and SLR
-#'   scenario columns (e.g. `inun_region`, `state`, `ref_file`, `proj_file`,
+#'   scenario columns (e.g. `inun_region`, `ref_file`, `proj_file`,
 #'   `buffer_km`); non-coastal rows have NA geometry and NA SLR columns. Must
 #'   include columns `wsd_source_id`, `park_unit`, `inun_region`,
-#'   `state`, `ref_file`, and `proj_file` (NAs acceptable for non-coastal rows).
+#'   `ref_file`, and `proj_file` (NAs acceptable for non-coastal rows).
 #' @param inundation_raster_data_dir character, path to inundation surface raster
 #'   state subdirectories
 #' @param save logical, whether to save output
@@ -36,9 +36,8 @@ calc_inundation_exposure <- function(ws_scenarios,
                                      save = FALSE,
                                      output_dir = NULL,
                                      verbose = TRUE) {
-  
   # Input validation
-  required_columns <- c("inun_region", "state", "ref_file", "proj_file")
+  required_columns <- c("inun_region", "ref_file", "proj_file")
    
   stopifnot("ws_scenarios must be an sf object" = inherits(ws_scenarios, "sf"),
             "save is TRUE but output_dir not provided" = !save || !is.null(output_dir),
@@ -54,9 +53,9 @@ calc_inundation_exposure <- function(ws_scenarios,
     ungroup() %>% 
     distinct() %>%
     mutate(identity = paste0(wsd_source_id, "-", buffer_km)) %>%
-    select(c(park_unit, state, identity, wsd_source_id, buffer_km, inun_proj_mm,
-             inun_region ,inun_proj_closest_mm, depth_ft, depth_m, inun_surf_url, 
-             proj_file, ref_file, geom)) 
+    select(c(park_unit, identity, wsd_source_id, buffer_km, inun_proj_mm,
+             inun_region, inun_proj_closest_mm, depth_ft, depth_m, inun_surf_url,
+             proj_file, ref_file, geom))
   
   region_list <- ws_scenarios_mod %>% 
     split(f = .$proj_file) 
@@ -69,7 +68,7 @@ calc_inundation_exposure <- function(ws_scenarios,
       width  = 80
     )
   }
-  
+ 
   # Main loop over regions ====
   ws_inun_stats <- map_dfr(region_list, function(region_sf) {
     
@@ -81,9 +80,7 @@ calc_inundation_exposure <- function(ws_scenarios,
       distinct(proj_file, ref_file) %>%
       mutate(state = substr(proj_file, 1, 2))
     
-    state <- unique(locs_needed$state)
-    
-    # identify IDs with overlapping inundation layers 
+    # identify IDs with overlapping inundation layers
     overlap_ids <-  ws_scenarios_mod %>%
       filter(identity %in% region_sf$identity) %>%
       group_by(identity) %>%
@@ -91,16 +88,16 @@ calc_inundation_exposure <- function(ws_scenarios,
       filter(count > 1) %>%
       pull(identity) %>%
       unique()
-    
+
     overlap_files <- ws_scenarios_mod %>%
       filter(identity %in% region_sf$identity) %>%
       group_by(identity) %>%
       mutate(count = n()) %>%
-      filter(count > 1) 
-    
-    # build full paths to all tiles
-    ref_tiles  <- sort(unique(here(inundation_raster_data_dir, state, locs_needed$ref_file)))
-    proj_tiles <- sort(unique(here(inundation_raster_data_dir, state, locs_needed$proj_file)))
+      filter(count > 1)
+
+    # build full paths to all tiles (using per-row state to avoid recycling mismatches)
+    ref_tiles  <- sort(unique(here(inundation_raster_data_dir, locs_needed$state, locs_needed$ref_file)))
+    proj_tiles <- sort(unique(here(inundation_raster_data_dir, locs_needed$state, locs_needed$proj_file)))
     
     stopifnot(length(ref_tiles)  >= 1, all(file.exists(ref_tiles)))
     stopifnot(length(proj_tiles) >= 1, all(file.exists(proj_tiles)))
@@ -128,14 +125,23 @@ calc_inundation_exposure <- function(ws_scenarios,
 
         tile_file <- unique(region_sf[[file_col]])
 
-        stopifnot(length(tile_file) == 1)
+        stopifnot("batch path expects exactly one tile per scenario — proj_file split should guarantee this" = length(tile_file) == 1)
 
-        tile_path <- here(inundation_raster_data_dir, state, tile_file)
+        tile_path <- here(inundation_raster_data_dir, substr(tile_file, 1, 2), tile_file)
 
         stopifnot(file.exists(tile_path))
 
         rast <- terra::rast(tile_path)
 
+        # exactextractr::exact_extract returns one row per raster cell that
+        # intersects the polygon, regardless of whether the cell value is NA.
+        # This is correct for NOAA inundation rasters where NA = non-inundated:
+        # nrow(df) gives the true total cell count (denominator) and
+        # sum(!is.na(df$value)) counts only flooded cells (numerator).
+        # The batch path therefore handles all-NA (non-inundated) tiles correctly
+        # without any special-casing — unlike the one-by-one mosaic path (see
+        # prep_tile above), which previously discarded all-NA tiles and lost
+        # those cells from the total denominator.
         extracted <- suppressWarnings(
           exactextractr::exact_extract(rast, batch_sf, progress = FALSE)
         )
@@ -166,7 +172,6 @@ calc_inundation_exposure <- function(ws_scenarios,
     } else {
     batch_counts <- tibble()
     }
-    
     
     # ONE-BY-ONE: overlapping sites may span multiple tiles,
     # so build a mosaic per buffer then use exactextractr
@@ -203,7 +208,12 @@ calc_inundation_exposure <- function(ws_scenarios,
 
           out <- NULL
 
-          # fxn to crop and mask a single raster tile to a buffer polygon
+          # fxn to crop and mask a single raster tile to a buffer polygon.
+          # NOAA inundation rasters use NA to represent non-inundated cells, so an
+          # all-NA tile is valid: it means the buffer overlaps the tile extent but
+          # no flooding occurs there. We must NOT return NULL for all-NA tiles —
+          # doing so would exclude those cells from the total count, inflating the
+          # coverage percentage (or producing NA totals) for multi-tile water supplies.
           prep_tile <- function(r_path, b_sf) {
 
             r0 <- terra::rast(r_path)
@@ -211,11 +221,12 @@ calc_inundation_exposure <- function(ws_scenarios,
 
             r1 <- tryCatch(terra::crop(r0, b_projected), error = function(e) NULL)
             if (is.null(r1) || !inherits(r1, "SpatRaster")) return(NULL)
-            if (terra::ncell(r1) == 0 || all(is.na(terra::values(r1)))) return(NULL)
+            if (terra::ncell(r1) == 0) return(NULL)  # truly outside tile extent
 
             r2 <- tryCatch(terra::mask(r1, terra::vect(b_projected)), error = function(e) NULL)
             if (is.null(r2) || !inherits(r2, "SpatRaster")) return(NULL)
-            if (all(is.na(terra::values(r2)))) return(NULL)
+            # Do NOT filter all-NA r2: an all-NA masked tile means zero flooding
+            # in this tile, but its cells must still count toward the total denominator.
 
             return(r2)
 
@@ -228,6 +239,22 @@ calc_inundation_exposure <- function(ws_scenarios,
             if (!is.null(t) && inherits(t, "SpatRaster")) tile_list[[length(tile_list) + 1]] <- t
           }
           if (length(tile_list) > 0) {
+            # Normalize resolutions before mosaicking: NOAA tiles from adjacent
+            # regions can have different pixel sizes (across-region differences
+            # of up to ~6e-6 degrees, plus floating-point jitter of ~1e-7 within
+            # the same nominal family) that cause terra::mosaic to error with
+            # "resolution does not match". Resample all tiles to the coarsest
+            # resolution among the set — this avoids fabricating sub-pixel
+            # detail that doesn't exist in the coarser source. Nearest-neighbour
+            # is used to preserve NA = non-inundated cell semantics.
+            if (length(tile_list) > 1) {
+              coarsest_idx <- which.max(sapply(tile_list, function(t) terra::res(t)[1]))
+              template     <- tile_list[[coarsest_idx]]
+              tile_list    <- lapply(tile_list, function(t) {
+                if (isTRUE(all.equal(terra::res(t), terra::res(template)))) return(t)
+                terra::resample(t, template, method = "near")
+              })
+            }
             out <- tryCatch(
               terra::mosaic(terra::sprc(tile_list), fun = "max"),
               error = function(e) {
@@ -334,7 +361,7 @@ calc_inundation_exposure <- function(ws_scenarios,
            raw_total_cells_ref, raw_flooded_cells_ref, raw_coverage_pct_ref,
            raw_total_cells_proj, raw_flooded_cells_proj, raw_coverage_pct_proj,
            raw_cell_change, raw_pct_point_change, inun_change, inun_centroid_change) %>%
-    mutate(across(c(raw_total_cells_ref, raw_flooded_cells_ref,
+    mutate(across(c(raw_total_cells_ref, raw_flooded_cells_ref, raw_coverage_pct_ref,
                     raw_total_cells_proj, raw_flooded_cells_proj, raw_coverage_pct_proj,
                     raw_cell_change, raw_pct_point_change),
                   ~ ifelse(inun_change == "no_to_no", 0, .x))) %>%
