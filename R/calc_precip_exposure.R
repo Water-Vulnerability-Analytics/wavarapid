@@ -60,14 +60,14 @@ calc_precip_exposure <- function(water_supplies,
   # extract years
   files_dt[, `:=`(
     year_single = as.integer(str_extract(file, "(?<!\\d)(\\d{4})(?=\\.nc)")),
-    year_start  = as.integer(str_extract(file, "(\\d{4})(?=-\\d{4})")),
-    year_end    = as.integer(str_extract(file, "(?<=-)(\\d{4})(?=\\.)"))
+    year_start = as.integer(str_extract(file, "(\\d{4})(?=-\\d{4})")),
+    year_end = as.integer(str_extract(file, "(?<=-)(\\d{4})(?=\\.)"))
   )]
   
   # fill single-year files into start/end
   files_dt[!is.na(year_single), `:=`(
     year_start = year_single,
-    year_end   = year_single
+    year_end = year_single
   )]
   
   if(water_year == FALSE){

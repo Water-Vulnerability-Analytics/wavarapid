@@ -8,8 +8,9 @@
 #' @param water_supplies sf object with water supply locations.
 #' @param precip_data character, directory containing processed LOCA2 MWBM precip files.
 #'   Defaults to `"data/rapid/inputs/loca2_precipitation_water_supplies/"`.
-#' @param historical Character vector of length 2 giving the start and end dates
-#'   (in `"YYYY-MM-DD"` format) that define the historical period.
+#' @param historical Character vector of length 2 giving the start and end years
+#'   (in `"YYYY"` format) that define the historical period.
+#' @param water_year T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.
 #' @param save logical, whether to save output. Default is `FALSE`.
 #' @param output_dir character, directory path for saving files. Required if
 #'   `save = TRUE`.
@@ -20,7 +21,8 @@
 #'
 calc_precip_sensitivity <- function(water_supplies,
                                     precip_data = "data/rapid/inputs/loca2_precipitation_water_supplies/",
-                                    historical = c("1980-01-01", "2018-12-31"),
+                                    historical,
+                                    water_year,
                                     save = FALSE,
                                     output_dir = NULL,
                                     verbose = TRUE) {
@@ -32,14 +34,44 @@ calc_precip_sensitivity <- function(water_supplies,
   
   start_time <- Sys.time()
   
-  hist_start_year <- as.integer(format(as.Date(historical[1]), "%Y"))
-  hist_end_year   <- as.integer(format(as.Date(historical[2]), "%Y"))
+  hist_start_year <- as.integer(historical[1])
+  hist_end_year <- as.integer(historical[2])
   
   if (verbose) {
     message("Starting historical precip sensitivity calculation...")
   }
   
+  # use raw precip data (denoted with "livneh")
   files <- grep("livneh", list.files(precip_data, full.names = TRUE, pattern = "precip"), value = TRUE, invert = FALSE)
+  
+  files_dt <- data.table(file = files)
+  
+  # extract years
+  files_dt[, `:=`(
+    year_single = as.integer(str_extract(file, "(?<!\\d)(\\d{4})(?=\\.nc)")),
+    year_start = as.integer(str_extract(file, "(\\d{4})(?=-\\d{4})")),
+    year_end = as.integer(str_extract(file, "(?<=-)(\\d{4})(?=\\.)"))
+  )]
+  
+  # fill single-year files into start/end
+  files_dt[!is.na(year_single), `:=`(
+    year_start = year_single,
+    year_end = year_single
+  )]
+  
+  if(water_year == FALSE){
+    # keep files overlapping either period
+    files_subset <- files_dt[
+      (year_end >= hist_start_year & year_start <= hist_end_year) 
+    ]
+  } else {
+    # keep files overlapping either period (with wyear accounted for)
+    files_subset <- files_dt[
+      (year_end >= hist_start_year - 1 & year_start <= hist_end_year) 
+    ]
+  }
+  
+  files <- files_subset$file
   
   if (length(files) == 0) {
     stop("No processed precip files found. Check your input data and file paths.")
@@ -60,7 +92,11 @@ calc_precip_sensitivity <- function(water_supplies,
       dplyr::filter(wsd_source_id %in% water_supplies$wsd_source_id)
     
     data.table::as.data.table(raw)[
-      , year := as.integer(format(date, "%Y"))
+      ,       year := if (water_year) {
+        year(date) + fifelse(month(date) >= 10, 1L, 0L)
+      } else {
+        year(date)
+      }
     ][
       year >= hist_start_year & year <= hist_end_year
     ][
