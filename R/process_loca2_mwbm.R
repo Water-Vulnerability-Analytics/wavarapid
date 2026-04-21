@@ -13,10 +13,11 @@
 #' 
 process_loca2_mwbm <- function(nc_path,
                                water_supplies,
-                               var, # can be "runoff", "pr", "swe", 
+                               var, # can be "runoff", "pr", "swe", "pet"
                                historical = c("1980-01-01", "2024-12-31"),
                                future = c("2035-01-01", "2065-12-31"),
                                output_dir){ 
+  
   
   message(paste0("Starting vectorized extraction of ", nc_path))
   
@@ -66,14 +67,17 @@ process_loca2_mwbm <- function(nc_path,
   # get time units 
   time_seq <-  if(var == "PRCP"){ncvar_get(nc, "Time")} else {ncvar_get(nc, "time") }
   time_units <- if(var == "PRCP"){nc$dim[["Time"]]$units} else {nc$dim[["time"]]$units}
-  start_time_date <- ymd(sub(".*since\\s+", "", time_units))
+  start_time_date <- lubridate::ymd(sub(" .*", "", sub(".*since\\s+", "", time_units)))
+  
+  # get mwbm units
+  mwbm_units <- ncatt_get(nc, var, "units")$value
   
   # Filter time indices based on units
   time_indices_to_keep <- seq_along(time_seq)  
   
   if (!is.na(time_units) && grepl("days since", time_units, ignore.case = TRUE)) {
-    message(sprintf("Filtering to %s to %s and %s to %s periods", 
-                    historical[1], historical[2], future[1], future[2]))
+    # message(sprintf("Filtering to %s to %s and %s to %s periods", 
+    #                 historical[1], historical[2], future[1], future[2]))
     
     # convert date boundaries to days since start_time_date
     # (how these cdf files record times)
@@ -92,10 +96,10 @@ process_loca2_mwbm <- function(nc_path,
     time_indices_to_keep <- c(period_historical, period_future)
     time_indices_to_keep <- sort(time_indices_to_keep)  # Keep in chronological order
     
-    message(sprintf("Filtered from %d to %d time steps", length(time_seq), length(time_indices_to_keep)))
-    message(sprintf("Historical period (%s to %s): %d steps, Future period (%s to %s): %d steps", 
-                    historical[1], historical[2], length(period_historical),
-                    future[1], future[2], length(period_future)))
+    # message(sprintf("Filtered from %d to %d time steps", length(time_seq), length(time_indices_to_keep)))
+    # message(sprintf("Historical period (%s to %s): %d steps, Future period (%s to %s): %d steps", 
+    #                 historical[1], historical[2], length(period_historical),
+    #                 future[1], future[2], length(period_future)))
   }
   
   # update time_seq and nt to reflect filtered data
@@ -153,12 +157,12 @@ process_loca2_mwbm <- function(nc_path,
   n_extractions <- nrow(neighbor_list)
   result_matrix <- matrix(NA_real_, nrow = n_extractions, ncol = nt)
   
-  message(sprintf("Extracting %d locations across %d time steps...", n_extractions, nt))
+  # message(sprintf("Extracting %d locations across %d time steps...", n_extractions, nt))
   
   # If we have filtered time indices, we need a different approach
   if (length(time_indices_to_keep) < length(time_seq)) {
     # Read all filtered time steps at once by reading the full array and subsetting
-    message("Reading filtered time data...")
+    # message("Reading filtered time data...")
     
     # Read the entire variable
     full_arr <- ncvar_get(nc, var)
@@ -239,7 +243,7 @@ process_loca2_mwbm <- function(nc_path,
       
       # progress bar
       if (chunk %% max(1, n_chunks %/% 10) == 0 || chunk == n_chunks) {
-        message(sprintf("Processed chunk %d / %d (time steps %d-%d)", chunk, n_chunks, start_t, end_t))
+        # message(sprintf("Processed chunk %d / %d (time steps %d-%d)", chunk, n_chunks, start_t, end_t))
       }
     }
   }
@@ -254,11 +258,7 @@ process_loca2_mwbm <- function(nc_path,
     # join with neighborhood indices to add spatial information
     left_join(neighbor_list %>% mutate(extraction_id = row_number()), by = "extraction_id") %>%
     select(-extraction_id)
-  
-  end_time <- Sys.time()
-  
-  message(sprintf("Extraction completed in %.2f seconds", as.numeric(difftime(end_time, start_time, units = "secs"))))
-  
+ 
   # extract point attributes (non-spatial data) and add point ID column
   pts_attr <- st_drop_geometry(water_supplies) %>% mutate(.pt_id = row_number())
   
@@ -277,19 +277,43 @@ process_loca2_mwbm <- function(nc_path,
     time_index = NULL 
   )]
   
+  
+  # daily precip is sometimes in kg m-2 s-1 units. convert to mm/day
+  if(mwbm_units != "mm"){
+    message(mwbm_units)
+    results_dt <- results_dt %>%
+      mutate(value = value * 86400)
+  }
+  
+  
+  # precip is daily, must further aggregate to monthly
+  if(var %in% c("pr_tavg", "PRCP", "pr")){
+    
+    results_dt <- results_dt[
+      , date := as.Date(format(date, "%Y-%m-01"))
+    ][
+      , .(value = sum(value, na.rm = TRUE)),
+      by = .(wsd_source_id, park_unit, time_units, nc_file, cell_lon, cell_lat, date)
+    ]
+    
+  }
+  
   # Create output directory if it doesn't exist
-  #output_dir <- "data/rapid/loca2_mwbm_runoff/"
   if (!dir.exists(output_dir)) {
     dir.create(output_dir, recursive = TRUE)
   }
   
   if(var %in% c("Tmin", "Tmax")){
-  write_parquet(results_dt, paste0(output_dir, basename(nc_path), "_", var, ".parquet"))
+    write_parquet(results_dt, paste0(output_dir, basename(nc_path), "_", var, ".parquet"))
   } else {
-    
     write_parquet(results_dt, paste0(output_dir, basename(nc_path), ".parquet"))
-    
   }
+  
+  end_time <- Sys.time()
+  
+  message(sprintf("Extraction completed in %.2f seconds", as.numeric(difftime(end_time, start_time, units = "secs"))))
+  
   nc_close(nc)
+  
   gc()
 }
