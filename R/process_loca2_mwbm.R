@@ -76,8 +76,6 @@ process_loca2_mwbm <- function(nc_path,
   time_indices_to_keep <- seq_along(time_seq)  
   
   if (!is.na(time_units) && grepl("days since", time_units, ignore.case = TRUE)) {
-    # message(sprintf("Filtering to %s to %s and %s to %s periods", 
-    #                 historical[1], historical[2], future[1], future[2]))
     
     # convert date boundaries to days since start_time_date
     # (how these cdf files record times)
@@ -96,10 +94,6 @@ process_loca2_mwbm <- function(nc_path,
     time_indices_to_keep <- c(period_historical, period_future)
     time_indices_to_keep <- sort(time_indices_to_keep)  # Keep in chronological order
     
-    # message(sprintf("Filtered from %d to %d time steps", length(time_seq), length(time_indices_to_keep)))
-    # message(sprintf("Historical period (%s to %s): %d steps, Future period (%s to %s): %d steps", 
-    #                 historical[1], historical[2], length(period_historical),
-    #                 future[1], future[2], length(period_future)))
   }
   
   # update time_seq and nt to reflect filtered data
@@ -157,12 +151,9 @@ process_loca2_mwbm <- function(nc_path,
   n_extractions <- nrow(neighbor_list)
   result_matrix <- matrix(NA_real_, nrow = n_extractions, ncol = nt)
   
-  # message(sprintf("Extracting %d locations across %d time steps...", n_extractions, nt))
-  
   # If we have filtered time indices, we need a different approach
   if (length(time_indices_to_keep) < length(time_seq)) {
     # Read all filtered time steps at once by reading the full array and subsetting
-    # message("Reading filtered time data...")
     
     # Read the entire variable
     full_arr <- ncvar_get(nc, var)
@@ -243,7 +234,6 @@ process_loca2_mwbm <- function(nc_path,
       
       # progress bar
       if (chunk %% max(1, n_chunks %/% 10) == 0 || chunk == n_chunks) {
-        # message(sprintf("Processed chunk %d / %d (time steps %d-%d)", chunk, n_chunks, start_t, end_t))
       }
     }
   }
