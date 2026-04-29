@@ -5,12 +5,11 @@
 #' @param water_supplies sf object with water supply locations
 #' @param runoff_data character vector of processed loca2 mwbm files
 #' @param hindcast logical, if TRUE uses hindcast climate data, if FALSE uses "real" climate data 
-#' @param historical Character vector of length 2 giving the start and end dates
-#'   (in `"YYYY-MM-DD"` format) that defines the "historical" period.  
-#'   Defaults to `c("1980-01-01", "2024-12-31")`.
-#' @param future Character vector of length 2 giving the start and end dates
-#'   (in `"YYYY-MM-DD"` format) that defines the "future" period.  
-#'   Defaults to `c("2035-01-01", "2065-12-31")`.
+#' @param historical Character vector of length 2 giving the start and end years
+#'   (in `"YYYY"` format) that defines the "historical" period.  
+#' @param future Character vector of length 2 giving the start and end years
+#'   (in `"YYYY"` format) that defines the "future" period.  
+#' @param water_year T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.
 #' @param save logical, whether to save output
 #' @param output_dir character, directory path for saving files
 #' @param verbose logical, whether to show progress messages
@@ -20,8 +19,9 @@
 calc_runoff_exposure <- function(water_supplies,
                                  runoff_data = "data/rapid/inputs/loca2_runoff_water_supplies/",
                                  hindcast = TRUE,
-                                 historical = c("1981-01-01", "2010-12-31"),
-                                 future = c("2035-01-01", "2065-12-31"),
+                                 historical,
+                                 future,
+                                 water_year = TRUE,
                                  save = FALSE,
                                  output_dir = NULL,
                                  verbose = TRUE) {
@@ -39,10 +39,10 @@ calc_runoff_exposure <- function(water_supplies,
   }
   
   # Extract year boundaries from date arguments
-  hist_start_year <- as.integer(format(as.Date(historical[1]), "%Y"))
-  hist_end_year <- as.integer(format(as.Date(historical[2]), "%Y"))
-  future_start_year <- as.integer(format(as.Date(future[1]), "%Y"))
-  future_end_year <- as.integer(format(as.Date(future[2]), "%Y"))
+  hist_start_year <- as.integer(historical[1])
+  hist_end_year <- as.integer(historical[2])
+  future_start_year <- as.integer(future[1])
+  future_end_year <- as.integer(future[2])
   
   if(hindcast == FALSE){
     # if we want to use training data... select associated files
@@ -79,8 +79,13 @@ calc_runoff_exposure <- function(water_supplies,
     raw <- read_parquet(f) %>%
       dplyr::filter(wsd_source_id %in% water_supplies$wsd_source_id)
     
+    # grabs year (or water year if water_year = TRUE)
     annual_points <- as.data.table(raw)[
-      , year := as.integer(format(date, "%Y"))
+      ,      year := if (water_year) {
+        year(date) + fifelse(month(date) >= 10, 1L, 0L)
+      } else {
+        year(date)
+      }
     ][
       # Use the extracted year boundaries from function arguments
       (year >= hist_start_year & year <= hist_end_year) | 
@@ -95,6 +100,8 @@ calc_runoff_exposure <- function(water_supplies,
       by = .(year, wsd_source_id, park_unit, nc_file)
     ]
     
+    annual_points
+    
   }
   
   # Process the extracted data files with progress bar
@@ -104,6 +111,8 @@ calc_runoff_exposure <- function(water_supplies,
   })
   
   combined_data <- mean_data %>% bind_rows()
+  
+  setDT(combined_data)
   
   suppressMessages({suppressWarnings({
     # fix specific filename pattern from Jay's data
@@ -130,7 +139,7 @@ calc_runoff_exposure <- function(water_supplies,
     
     # distinct (model, scenario) pairs that exist in the past and future
     ssps <- combined_data %>%
-      filter(time != "1950-2014") %>%
+      filter(ssp != "historical") %>%
       distinct(model, ssp, run)
     
     runoff_change_sub <- vector("list", length = nrow(ssps))
@@ -149,7 +158,8 @@ calc_runoff_exposure <- function(water_supplies,
         filter(model == ssp_sub$model,
                ssp == ssp_sub$ssp,
                run == ssp_sub$run) %>%
-        filter(year >= hist_start_year & year <= hist_end_year)
+        filter(year >= hist_start_year & year <= hist_end_year,
+               !year %in% hindcast_historical)
       
       historical <- hindcast_historical %>%
         bind_rows(hindcast_future) %>%
@@ -186,30 +196,31 @@ calc_runoff_exposure <- function(water_supplies,
       filter(ssp != "training") %>%
       distinct(model, ssp, run)
     
+    training_historical <- combined_data %>%
+      filter(ssp == "training") %>%
+      filter(year >= hist_start_year & year <= hist_end_year)
+    
     runoff_change_sub <- vector("list", length = nrow(ssps))
     
     for(i in 1:nrow(ssps)){
       suppressMessages({suppressWarnings({
         ssp_sub <- ssps[i,]
         
-        training_historical <- combined_data %>%
-          filter(ssp == "training") %>%
-          filter(year >= hist_start_year & year <= hist_end_year)
-        
         model_historical <- combined_data %>%
           filter(model == ssp_sub$model,
                  ssp == ssp_sub$ssp,
                  run == ssp_sub$run) %>%
-          filter(year >= hist_start_year & year <= hist_end_year)
+          filter(year >= hist_start_year & year <= hist_end_year,
+                 !year %in% training_historical$year)
         
-        historical <- training_historical %>%
+        historical_complete <- training_historical %>%
           bind_rows(model_historical) %>%
           group_by(wsd_source_id, park_unit) %>%
           summarize(runoff_historical = mean(total_runoff, na.rm = TRUE),
                     range_historical = paste0(min(year), "-", max(year)),
                     .groups = "drop")
         
-        future <- combined_data %>% 
+        future_complete <- combined_data %>% 
           filter(model == ssp_sub$model,
                  ssp == ssp_sub$ssp,
                  run == ssp_sub$run) %>%
@@ -219,8 +230,8 @@ calc_runoff_exposure <- function(water_supplies,
                     period_future = paste0(min(year), "-", max(year)),
                     .groups = "drop")
         
-        runoff_change_sub[[i]] <- future %>%
-          inner_join(., historical, by = c("wsd_source_id", "park_unit")) %>%
+        runoff_change_sub[[i]] <- future_complete %>%
+          inner_join(., historical_complete, by = c("wsd_source_id", "park_unit")) %>%
           mutate(model = ssp_sub$model,
                  ssp = ssp_sub$ssp,
                  run = ssp_sub$run,

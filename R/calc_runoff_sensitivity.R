@@ -8,8 +8,9 @@
 #' @param water_supplies sf object with water supply locations.
 #' @param runoff_data character, directory containing processed LOCA2 MWBM runoff files.
 #'   Defaults to `"data/rapid/inputs/loca2_runoff_water_supplies/"`.
-#' @param historical Character vector of length 2 giving the start and end dates
-#'   (in `"YYYY-MM-DD"` format) that define the historical period.
+#' @param historical Character vector of length 2 giving the start and end years
+#'   (in `"YYYY"` format) that define the historical period.
+#' @param water_year T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.
 #' @param save logical, whether to save output. Default is `FALSE`.
 #' @param output_dir character, directory path for saving files. Required if
 #'   `save = TRUE`.
@@ -20,7 +21,8 @@
 #'
 calc_runoff_sensitivity <- function(water_supplies,
                                     runoff_data = "data/rapid/inputs/loca2_runoff_water_supplies/",
-                                    historical = c("1980-01-01", "2010-12-31"),
+                                    historical,
+                                    water_year = TRUE,
                                     save = FALSE,
                                     output_dir = NULL,
                                     verbose = TRUE) {
@@ -32,8 +34,8 @@ calc_runoff_sensitivity <- function(water_supplies,
   
   start_time <- Sys.time()
   
-  hist_start_year <- as.integer(format(as.Date(historical[1]), "%Y"))
-  hist_end_year   <- as.integer(format(as.Date(historical[2]), "%Y"))
+  hist_start_year <- as.integer(historical[1])
+  hist_end_year <- as.integer(historical[2])
   
   if (verbose) {
     message("Starting historical runoff sensitivity calculation...")
@@ -58,9 +60,13 @@ calc_runoff_sensitivity <- function(water_supplies,
   process_raw_grid_data <- function(f) {
     raw <- arrow::read_parquet(f) %>%
       dplyr::filter(wsd_source_id %in% water_supplies$wsd_source_id)
-    
+  
     data.table::as.data.table(raw)[
-      , year := as.integer(format(date, "%Y"))
+      ,  year := if (water_year) {
+        year(date) + fifelse(month(date) >= 10, 1L, 0L)
+      } else {
+        year(date)
+      }
     ][
       year >= hist_start_year & year <= hist_end_year
     ][
@@ -88,7 +94,6 @@ calc_runoff_sensitivity <- function(water_supplies,
     dplyr::arrange(wsd_source_id, year) %>%
     dplyr::group_by(wsd_source_id, park_unit) %>%
     dplyr::summarize(raw_avg_runoff = mean(total_runoff, na.rm = TRUE),
-                     n_years = sum(!is.na(total_runoff)),
                      data = list(dplyr::pick(dplyr::everything())),
                      .groups = "drop") %>%
     mutate(n_years = map_int(data, ~ sum(!is.na(.x$total_runoff))),
@@ -110,8 +115,8 @@ calc_runoff_sensitivity <- function(water_supplies,
                                        raw_slope_runoff < 0 ~ "decreasing",
                                        TRUE ~ "no change"),
            raw_percent_slope_runoff = ifelse(is.na(raw_slope_runoff) | is.na(raw_avg_runoff) | raw_avg_runoff == 0,
-                                                 NA_real_,
-                                                 (raw_slope_runoff / raw_avg_runoff) * 100)) %>%
+                                             NA_real_,
+                                             (raw_slope_runoff / raw_avg_runoff) * 100)) %>%
     # add standardized indicators using helper function
     add_standardized_indicators("raw_slope_runoff", invert = TRUE) %>%
     add_standardized_indicators("raw_avg_runoff", invert = TRUE) %>%
