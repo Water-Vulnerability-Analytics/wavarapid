@@ -4,11 +4,12 @@
 #'
 #' @param water_supplies sf object with water supply locations
 #' @param precip_data character vector of processed loca2 mwbm files
-#' @param hindcast logical, if TRUE uses hindcast climate data, if FALSE uses "real" climate data 
-#' @param historical Character vector of length 2 giving the start and end dates
-#'   (in `"YYYY-MM-DD"` format) that defines the "historical" period.  
-#' @param future Character vector of length 2 giving the start and end dates
-#'   (in `"YYYY-MM-DD"` format) that defines the "future" period.  
+#' @param hindcast logical, if TRUE uses hindcast climate data, if FALSE uses "measured" LOCA downscaled climate data 
+#' @param historical Character vector of length 2 giving the start and end years
+#'   (in `"YYYY"` format) that defines the "historical" period.  
+#' @param future Character vector of length 2 giving the start and end years
+#'   (in `"YYYY"` format) that defines the "future" period.  
+#' @param water_year T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.
 #' @param save logical, whether to save output
 #' @param output_dir character, directory path for saving files
 #' @param verbose logical, whether to show progress messages
@@ -18,8 +19,9 @@
 calc_precip_exposure <- function(water_supplies,
                                  precip_data = "data/rapid/inputs/loca2_precipitation_water_supplies/",
                                  hindcast = TRUE,
-                                 historical = c("1981-01-01", "2010-12-31"),
-                                 future = c("2035-01-01", "2065-12-31"),
+                                 historical,
+                                 future,
+                                 water_year = TRUE,
                                  save = FALSE,
                                  output_dir = NULL,
                                  verbose = TRUE) {
@@ -37,21 +39,52 @@ calc_precip_exposure <- function(water_supplies,
   }
   
   # Extract year boundaries from date arguments
-  hist_start_year <- as.integer(format(as.Date(historical[1]), "%Y"))
-  hist_end_year <- as.integer(format(as.Date(historical[2]), "%Y"))
-  future_start_year <- as.integer(format(as.Date(future[1]), "%Y"))
-  future_end_year <- as.integer(format(as.Date(future[2]), "%Y"))
+  hist_start_year <- as.integer(historical[1])
+  hist_end_year <- as.integer(historical[2])
+  future_start_year <- as.integer(future[1])
+  future_end_year <- as.integer(future[2])
   
   if(hindcast == FALSE){
     # if we want to use training data... select associated files
     files <- list.files(precip_data, full.names = TRUE) %>%
-      grep("2015|2045|2075livneh_unsplit", ., value = TRUE)
+      grep("2015|2045|2075|livneh_unsplit", ., value = TRUE)
     
   } else if(hindcast == TRUE){
     # if we want to use hindcast climate data... 
     files <- list.files(precip_data, full.names = TRUE) %>%
-      grep("training", .,  invert = TRUE, value = TRUE)
+      grep("training|livneh_unsplit", .,  invert = TRUE, value = TRUE)
   } 
+  
+  files_dt <- data.table(file = files)
+  
+  # extract years
+  files_dt[, `:=`(
+    year_single = as.integer(str_extract(file, "(?<!\\d)(\\d{4})(?=\\.nc)")),
+    year_start = as.integer(str_extract(file, "(\\d{4})(?=-\\d{4})")),
+    year_end = as.integer(str_extract(file, "(?<=-)(\\d{4})(?=\\.)"))
+  )]
+  
+  # fill single-year files into start/end
+  files_dt[!is.na(year_single), `:=`(
+    year_start = year_single,
+    year_end = year_single
+  )]
+  
+  if(water_year == FALSE){
+    # keep files overlapping either period
+    files_subset <- files_dt[
+      (year_end >= hist_start_year & year_start <= hist_end_year) |
+        (year_end >= future_start_year  & year_start <= future_end_year)
+    ]
+  } else {
+    # keep files overlapping either period (with wyear accounted for)
+    files_subset <- files_dt[
+      (year_end >= hist_start_year - 1 & year_start <= hist_end_year) |
+        (year_end >= future_start_year - 1  & year_start <= future_end_year)
+    ]
+  }
+  
+  files <- files_subset$file
   
   # Check if we have any files to process
   if (length(files) == 0) {
@@ -77,17 +110,24 @@ calc_precip_exposure <- function(water_supplies,
     raw <- read_parquet(f) %>%
       dplyr::filter(wsd_source_id %in% water_supplies$wsd_source_id)
     
+    annual_points <- as.data.table(raw)[
+      ,
+      year := if (water_year) {
+        year(date) + fifelse(month(date) >= 10, 1L, 0L)
+      } else {
+        year(date)
+      }
+    ]
+    
     # when using observed data, get rid of the modeled data 
     # that overlaps with observed record
     if (!grepl("livneh_unsplit", f) && hindcast == FALSE) {
-      raw <- raw[year(date) >= 2019]
+      annual_points <- annual_points[year >= 2019]
     }
     
-    annual_points <- as.data.table(raw)[
-      , year := as.integer(format(date, "%Y"))
-    ][
+    annual_points <- annual_points[
       # Use the extracted year boundaries from function arguments
-      (year >= hist_start_year & year <= hist_end_year) | 
+      (year >= hist_start_year & year <= hist_end_year) |
         (year >= future_start_year & year <= future_end_year)
     ][
       # annual totals per grid cell/model
@@ -99,6 +139,7 @@ calc_precip_exposure <- function(water_supplies,
       by = .(year, wsd_source_id, park_unit, nc_file)
     ]
     
+    annual_points
   }
   
   # Process the extracted data files with progress bar
@@ -109,8 +150,10 @@ calc_precip_exposure <- function(water_supplies,
   
   combined_data <- mean_data %>% bind_rows()
   
+  setDT(combined_data)  
+  
   suppressMessages({suppressWarnings({
-    # fix specific filename pattern from Jay's data
+    # fix specific filename pattern from Jay's data, if using
     combined_data[
       nc_file == "Jay_Alder_pr_MWBM_LOCA2_training_195001-201412.nc",
       nc_file := "Jay_Alder_pr_MWBM_LOCA2.historical.training.1950-2100.nc"
@@ -121,9 +164,9 @@ calc_precip_exposure <- function(water_supplies,
       , c("var", "model", "ssp", "run", "nc", "misc1", "misc2", "misc3" ) := tstrsplit(nc_file, "\\.")
     ]
     
-  # ssp populate with "livneh" for hindcast = FALSE (as in, no ssp)
+    # ssp populate with "historical" for hindcast = FALSE (as in, no ssp)
     combined_data[
-      is.na(ssp) | ssp == "",
+      !ssp %in% c("ssp245", "ssp370", "ssp585", "historical"),
       ssp := dplyr::case_when(
         grepl("livneh_unsplit", nc_file, ignore.case = TRUE) ~ "historical",
         TRUE ~ stringr::str_extract(nc_file, "ssp\\d+")
@@ -135,7 +178,7 @@ calc_precip_exposure <- function(water_supplies,
       !is.na(run), c("run", "time") := tstrsplit(run, "_", fixed = TRUE)
     ]
   })})
-    
+  
   # Drop unnecessary columns
   combined_data[, c("var", "nc") := NULL]
   
@@ -143,7 +186,7 @@ calc_precip_exposure <- function(water_supplies,
     
     # distinct (model, scenario) pairs that exist in the past and future
     ssps <- combined_data %>%
-      filter(time != "1950-2014") %>%
+      filter(!ssp %in% c("1950-2014", "historical")) %>%
       distinct(model, ssp, run)
     
     precipitation_change_sub <- vector("list", length = nrow(ssps))
@@ -158,20 +201,22 @@ calc_precip_exposure <- function(water_supplies,
                run == ssp_sub$run) %>%
         filter(year >= hist_start_year & year <= hist_end_year)
       
+      # if our historical record is actually considered "future" data...
       hindcast_future <- combined_data %>%
         filter(model == ssp_sub$model,
                ssp == ssp_sub$ssp,
                run == ssp_sub$run) %>%
-        filter(year >= hist_start_year & year <= hist_end_year)
+        filter(year >= hist_start_year & year <= hist_end_year,
+               !year %in% unique(hindcast_historical$year))
       
-      historical <- hindcast_historical %>%
+      historical_complete <- hindcast_historical %>%
         bind_rows(hindcast_future) %>%
         group_by(wsd_source_id, park_unit) %>%
         summarize(precipitation_historical = mean(total_precipitation, na.rm = TRUE),
                   range_historical = paste0(min(year), "-", max(year)),
                   .groups = "drop")
       
-      future <- combined_data %>% 
+      future_complete <- combined_data %>% 
         filter(model == ssp_sub$model,
                ssp == ssp_sub$ssp,
                run == ssp_sub$run) %>%
@@ -181,8 +226,8 @@ calc_precip_exposure <- function(water_supplies,
                   period_future = paste0(min(year), "-", max(year)),
                   .groups = "drop")
       
-      precipitation_change_sub[[i]] <- future %>%
-        inner_join(., historical, by = c("wsd_source_id", "park_unit")) %>%
+      precipitation_change_sub[[i]] <- future_complete %>%
+        inner_join(., historical_complete, by = c("wsd_source_id", "park_unit")) %>%
         mutate(model = ssp_sub$model,
                ssp = ssp_sub$ssp,
                run = ssp_sub$run,
@@ -196,8 +241,16 @@ calc_precip_exposure <- function(water_supplies,
     
     # distinct (model, scenario) pairs that exist in the past and future
     ssps <- combined_data %>%
-      filter(ssp != "training") %>%
+      filter(ssp != "training" & ssp != "historical") %>%
       distinct(model, ssp, run)
+    
+    training_historical <- combined_data %>%
+      filter(ssp == "training" | ssp == "historical") %>%
+      group_by(wsd_source_id, park_unit) %>%
+      filter(year >= hist_start_year & year <= hist_end_year) %>%
+      summarize(precipitation_historical = mean(total_precipitation, na.rm = TRUE),
+                range_historical = paste0(min(year), "-", max(year)),
+                .groups = "drop")
     
     precipitation_change_sub <- vector("list", length = nrow(ssps))
     
@@ -205,24 +258,7 @@ calc_precip_exposure <- function(water_supplies,
       suppressMessages({suppressWarnings({
         ssp_sub <- ssps[i,]
         
-        training_historical <- combined_data %>%
-          filter(ssp == "training") %>%
-          filter(year >= hist_start_year & year <= hist_end_year)
-        
-        model_historical <- combined_data %>%
-          filter(model == ssp_sub$model,
-                 ssp == ssp_sub$ssp,
-                 run == ssp_sub$run) %>%
-          filter(year >= hist_start_year & year <= hist_end_year)
-        
-        historical <- training_historical %>%
-          bind_rows(model_historical) %>%
-          group_by(wsd_source_id, park_unit) %>%
-          summarize(precipitation_historical = mean(total_precipitation, na.rm = TRUE),
-                    range_historical = paste0(min(year), "-", max(year)),
-                    .groups = "drop")
-        
-        future <- combined_data %>% 
+        future_complete <- combined_data %>% 
           filter(model == ssp_sub$model,
                  ssp == ssp_sub$ssp,
                  run == ssp_sub$run) %>%
@@ -232,8 +268,8 @@ calc_precip_exposure <- function(water_supplies,
                     period_future = paste0(min(year), "-", max(year)),
                     .groups = "drop")
         
-        precipitation_change_sub[[i]] <- future %>%
-          inner_join(., historical, by = c("wsd_source_id", "park_unit")) %>%
+        precipitation_change_sub[[i]] <- future_complete %>%
+          inner_join(., training_historical, by = c("wsd_source_id", "park_unit")) %>%
           mutate(model = ssp_sub$model,
                  ssp = ssp_sub$ssp,
                  run = ssp_sub$run,
