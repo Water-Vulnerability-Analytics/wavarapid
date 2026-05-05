@@ -190,6 +190,16 @@ calc_flood_risk <-
     }
     )
     
+    # Average across geometries if a wsd_source_id had multiple entries in water_supplies
+    results <- results %>% 
+      summarise(
+        raw_flood_risk_area_m2  = mean(raw_flood_risk_area_m2, na.rm = TRUE),
+        raw_flood_risk_percent  = mean(raw_flood_risk_percent, na.rm = TRUE),
+        park_unit = first(park_unit),
+        park_name = first(park_name),
+        .by = wsd_source_id
+      )
+    
     # Calculate standardized indicators using helper function
     final_results <- results %>%
       add_standardized_indicators("raw_flood_risk")
