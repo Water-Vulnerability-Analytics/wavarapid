@@ -104,7 +104,7 @@ calc_fire_sensitivity <- function(water_supplies,
   })
   
   # Average across geometries if a wsd_source_id had multiple entries in water_supplies
-  results <- results |>
+  results <- results %>% 
     summarise(
       raw_wildfire_hazard_mean = mean(raw_wildfire_hazard_mean, na.rm = TRUE),
       park_unit = first(park_unit),
