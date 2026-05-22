@@ -64,8 +64,18 @@ calc_drought_exposure <- function(water_supplies,
     "save is TRUE but output_dir not provided" = !save || !is.null(output_dir)
   )
   
+  # adding on exit settings so these don't impact any other workflows
+  old_dt_threads <- data.table::getDTthreads()
+  old_arrow_threads <- Sys.getenv("ARROW_NUM_THREADS")
+  
   data.table::setDTthreads(1L)
   Sys.setenv(ARROW_NUM_THREADS = 1L)
+  
+  on.exit({
+    data.table::setDTthreads(old_dt_threads)
+    Sys.setenv(ARROW_NUM_THREADS = old_arrow_threads)
+  }, add = TRUE)
+  
   
   if (verbose) {
     message("Starting drought exposure calculation...")
