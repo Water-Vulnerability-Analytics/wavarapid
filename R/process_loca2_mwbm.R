@@ -27,8 +27,9 @@ process_loca2_mwbm <- function(nc_path,
   nc <- nc_open(nc_path)
   on.exit(nc_close(nc), add = TRUE)
   
-  # Keep original var label for output path decisions;
-  # nc_var is what gets passed to ncvar_get and may be renamed per-file.
+  # Some files use different internal NetCDF variable names for the same
+  # user-facing variable. Keep the original var label for later output and
+  # aggregation decisions; nc_var is what gets passed to ncvar_get.
   nc_var <- var
   
   if(nc_var == "pr" & !grepl("alder", nc_path, ignore.case = TRUE)){
@@ -51,7 +52,8 @@ process_loca2_mwbm <- function(nc_path,
     nc_var <- "snow"
   }
   
-  # Guard: check that nc_var actually exists in this file
+  # Guard: check that nc_var actually exists in this file before extraction.
+  # This makes variable-name mismatches fail early with a useful message.
   available_vars <- names(nc$var)
   if(!nc_var %in% available_vars){
     stop(sprintf(
@@ -66,6 +68,7 @@ process_loca2_mwbm <- function(nc_path,
   lat <- ncvar_get(nc, "lat")
   
   # If longitudes are 0-360, convert to -180-180
+  # Alder training historical data is in 0-360 whereas others are not...
   if (any(lon > 180)) lon <- ifelse(lon > 180, lon - 360, lon)
   
   # transform water_supplies to nc coordinate system if not already
@@ -74,12 +77,15 @@ process_loca2_mwbm <- function(nc_path,
   }
   
   # get time units
+  # Some Livneh precipitation files use capitalized Time instead of time.
   time_seq <- if(nc_var == "PRCP") {
     ncvar_get(nc, "Time")
   } else {
     ncvar_get(nc, "time")
   }
   
+  # Pull the matching time-unit metadata so numeric time values can be
+  # converted back to dates below.
   time_units <- if(nc_var == "PRCP") {
     nc$dim[["Time"]]$units
   } else {
@@ -98,13 +104,17 @@ process_loca2_mwbm <- function(nc_path,
   
   if (!is.na(time_units) && grepl("days since", time_units, ignore.case = TRUE)) {
     
+    # Convert date boundaries to the same "days since origin" units used by
+    # the NetCDF time coordinate.
     origin_date <- as.Date(start_time_date)
     
+    # Use the user-specified historical and future windows.
     start_historical <- as.numeric(as.Date(historical[1]) - origin_date)
     end_historical   <- as.numeric(as.Date(historical[2]) - origin_date)
     start_future     <- as.numeric(as.Date(future[1]) - origin_date)
     end_future       <- as.numeric(as.Date(future[2]) - origin_date)
     
+    # Grab only layers that fall within the requested reporting periods.
     period_historical <- which(time_seq >= start_historical & time_seq <= end_historical)
     period_future     <- which(time_seq >= start_future & time_seq <= end_future)
     
@@ -119,18 +129,24 @@ process_loca2_mwbm <- function(nc_path,
   v_pts <- vect(water_supplies)
   xy <- crds(v_pts)
   
+  # Convert point coordinates to array indices by finding the nearest NetCDF
+  # grid-cell center for each water supply.
   lon_index <- map_int(xy[, 1], ~ which.min(abs(lon - .x)))
   lat_index <- map_int(xy[, 2], ~ which.min(abs(lat - .x)))
   center_indices <- cbind(lon_index = lon_index, lat_index = lat_index)
   
+  # Build a 3x3 neighborhood around each nearest grid cell
+  # (-1, 0, +1 in both lon and lat directions).
   offsets <- expand.grid(lon_offset = -1:1, lat_offset = -1:1)
   
   neighbor_list <- vector("list", nrow(center_indices))
   
   for (i in 1:nrow(center_indices)) {
+    # Get center longitude and latitude indices for the current point.
     lon_index <- center_indices[i, "lon_index"]
     lat_index <- center_indices[i, "lat_index"]
     
+    # Apply offsets while clamping to valid grid boundaries.
     nbr_lons <- pmax(1, pmin(length(lon), lon_index + offsets$lon_offset))
     nbr_lats <- pmax(1, pmin(length(lat), lat_index + offsets$lat_offset))
     
@@ -142,16 +158,21 @@ process_loca2_mwbm <- function(nc_path,
   }
   
   neighbor_list <- bind_rows(neighbor_list) %>%
+    # Add actual geographic coordinates for each neighborhood cell.
     mutate(
       cell_lon = lon[lon_index],
       cell_lat = lat[lat_index]
     )
   
+  # Extract dimension names and sizes from the selected NetCDF variable.
   dnames <- map_chr(v$dim, "name")
   dsizes <- map_int(v$dim, "len")
   
+  # Identify time dimension by looking for "time" in dimension names.
   time_dim <- which(grepl("time", dnames, ignore.case = TRUE))
   
+  # Pre-allocate matrix for extracted values:
+  # rows = point-neighborhood cells; columns = selected time steps.
   n_extractions <- nrow(neighbor_list)
   result_matrix <- matrix(NA_real_, nrow = n_extractions, ncol = nt)
   
@@ -198,10 +219,13 @@ process_loca2_mwbm <- function(nc_path,
       # into the wrong output time slots.
       relative_indices <- file_indices - file_start + 1
       
+      # Start and count vectors for NetCDF reading start at index 1 for all
+      # dimensions, then get modified for the selected time window.
       start <- rep(1L, length(dsizes))
       count <- dsizes
       
       if (length(time_dim) == 1) {
+        # Restrict reading to this contiguous time chunk.
         start[time_dim] <- file_start
         count[time_dim] <- file_count
       }
@@ -253,12 +277,17 @@ process_loca2_mwbm <- function(nc_path,
   # (all extraction IDs for time step 1, then time step 2, etc.).
   # ============================================================================
   
+  # Convert the neighborhood lookup to data.table and add extraction IDs for
+  # joining extracted values back to grid-cell metadata.
   neighbor_dt <- as.data.table(neighbor_list)
   neighbor_dt[, extraction_id := .I]
   
+  # Extract point attributes (non-spatial data) for joining back to results.
   pts_attr <- as.data.table(sf::st_drop_geometry(water_supplies))
   pts_attr[, point_id := .I]
   
+  # Convert matrix results to long format. as.vector(result_matrix) unrolls the
+  # matrix by column, so extraction IDs repeat for each time step.
   results_dt <- data.table(
     extraction_id = rep.int(seq_len(n_extractions), times = nt),
     time_index = rep(seq_len(nt), each = n_extractions),
@@ -295,6 +324,8 @@ process_loca2_mwbm <- function(nc_path,
     point_id = NULL
   )]
   
+  # Precipitation can be stored in flux units (kg m-2 s-1, equivalent to
+  # mm/sec for water). Convert to monthly depth using seconds/day and days/month.
   if(mwbm_units != "mm" & grepl("pr", var)){
     message(mwbm_units)
     
@@ -306,6 +337,7 @@ process_loca2_mwbm <- function(nc_path,
     
   } else if(mwbm_units == "K"){
     
+    # Temperature variables are stored in Kelvin; convert to Celsius.
     message(mwbm_units)
     
     results_dt <- results_dt %>%
@@ -315,6 +347,8 @@ process_loca2_mwbm <- function(nc_path,
   
   # Use original var (not nc_var) for aggregation check so the branch is
   # reliable regardless of what nc_var was renamed to
+  # Livneh precipitation is daily, so aggregate daily values to monthly totals.
+  # Use original var here because nc_var may have been renamed to PRCP.
   if(var %in% c("pr") & grepl("livneh", nc_path)){
     
     results_dt <- results_dt[
@@ -330,6 +364,7 @@ process_loca2_mwbm <- function(nc_path,
     .(wsd_source_id, park_unit, time_units, nc_file, cell_lat, cell_lon, date, value)
   ]
   
+  # Create output directory if it does not exist.
   if (!dir.exists(output_dir)) {
     dir.create(output_dir, recursive = TRUE)
   }
