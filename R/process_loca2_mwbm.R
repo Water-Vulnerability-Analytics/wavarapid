@@ -295,7 +295,7 @@ process_loca2_mwbm <- function(nc_path,
     point_id = NULL
   )]
   
-  if(mwbm_units != "mm"){
+  if(mwbm_units != "mm" & grepl("pr", var)){
     message(mwbm_units)
     
     results_dt[, ym := as.Date(format(date, "%Y-%m-01"))]
@@ -303,6 +303,14 @@ process_loca2_mwbm <- function(nc_path,
     
     results_dt <- results_dt %>%
       mutate(value = value * 86400 * days_in_month)
+    
+  } else if(mwbm_units == "K"){
+    
+    message(mwbm_units)
+    
+    results_dt <- results_dt %>%
+      mutate(value = value - 273.15)
+    
   }
   
   # Use original var (not nc_var) for aggregation check so the branch is
