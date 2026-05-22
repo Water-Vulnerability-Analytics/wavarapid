@@ -39,8 +39,9 @@ process_drought_data <- function(water_supplies,
     "future must be length 2" = length(future) == 2
   )
   
-  data.table::setDTthreads(1L)
-  Sys.setenv(ARROW_NUM_THREADS = 1L)
+  # This was actually a big bottleneck because it limits you to just one core for this entire process
+  # data.table::setDTthreads(1L)
+  # Sys.setenv(ARROW_NUM_THREADS = 1L)
   
   if (verbose) {
     message("Starting drought data processing...")
@@ -203,19 +204,15 @@ process_drought_data <- function(water_supplies,
                       date >= as.character(overall_start),
                       date <= as.character(overall_end)) %>%
         dplyr::collect() %>%
-        data.table::as.data.table()
+        data.table::as.data.table() %>%
+        .[, date := data.table::as.IDate(date)]
       
       if (!nrow(dt)) {
         out[[i]] <- NULL
         next
       }
       
-      date_chr <- as.character(dt$date)
-      
-      dt[
-        ,
-        ym := data.table::as.IDate(paste0(substr(date_chr, 1L, 7L), "-01"))
-      ]
+      dt[, ym := date - (data.table::mday(date) - 1L)]
       
       dt <- dt[
         (ym >= hist_input_start & ym <= hist_input_end) |
@@ -238,8 +235,8 @@ process_drought_data <- function(water_supplies,
         )
       ]
       
-      dt[, year  := as.integer(substr(as.character(ym), 1L, 4L))]
-      dt[, month := as.integer(substr(as.character(ym), 6L, 7L))]
+      dt[, year  := data.table::year(ym)]
+      dt[, month := data.table::month(ym)]
       
       if (water_year) {
         dt[, analysis_year := year + data.table::fifelse(month >= 10L, 1L, 0L)]
