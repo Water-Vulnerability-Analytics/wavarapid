@@ -64,19 +64,6 @@ calc_drought_exposure <- function(water_supplies,
     "save is TRUE but output_dir not provided" = !save || !is.null(output_dir)
   )
   
-  # adding on exit settings so these don't impact any other workflows
-  old_dt_threads <- data.table::getDTthreads()
-  old_arrow_threads <- Sys.getenv("ARROW_NUM_THREADS")
-  
-  data.table::setDTthreads(1L)
-  Sys.setenv(ARROW_NUM_THREADS = 1L)
-  
-  on.exit({
-    data.table::setDTthreads(old_dt_threads)
-    Sys.setenv(ARROW_NUM_THREADS = old_arrow_threads)
-  }, add = TRUE)
-  
-  
   if (verbose) {
     message("Starting drought exposure calculation...")
     start_time <- Sys.time()
@@ -178,13 +165,13 @@ calc_drought_exposure <- function(water_supplies,
   
   select_cols <- unique(c(required_cols, intersect(optional_cols, available_cols)))
   
-  climate_monthly <- ds |>
-    dplyr::select(dplyr::all_of(select_cols)) |>
+  climate_monthly <- ds %>%
+    dplyr::select(dplyr::all_of(select_cols)) %>%
     dplyr::filter(
       wsd_source_id %in% water_supplies$wsd_source_id,
       park_unit %in% water_supplies$park_unit
-    ) |>
-    dplyr::collect() |>
+    ) %>%
+    dplyr::collect() %>%
     data.table::as.data.table()
   
   if (!nrow(climate_monthly)) {
@@ -744,10 +731,10 @@ calc_drought_exposure <- function(water_supplies,
     by = .(park_unit, wsd_source_id)
   ]
   
-  final_results <- summary_dt |>
-    dplyr::as_tibble() |>
-    add_standardized_indicators("raw_spei_change", invert = TRUE) |>
-    add_standardized_indicators("raw_spei_models_showing_decrease") |>
+  final_results <- summary_dt %>%
+    dplyr::as_tibble() %>%
+    add_standardized_indicators("raw_spei_change", invert = TRUE) %>%
+    add_standardized_indicators("raw_spei_models_showing_decrease") %>%
     dplyr::select(wsd_source_id, park_unit, dplyr::everything())
   
   if (save) {
