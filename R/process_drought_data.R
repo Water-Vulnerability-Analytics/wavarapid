@@ -39,10 +39,6 @@ process_drought_data <- function(water_supplies,
     "future must be length 2" = length(future) == 2
   )
   
-  # This was actually a big bottleneck because it limits you to just one core for this entire process
-  # data.table::setDTthreads(1L)
-  # Sys.setenv(ARROW_NUM_THREADS = 1L)
-  
   if (verbose) {
     message("Starting drought data processing...")
     start_time <- Sys.time()
