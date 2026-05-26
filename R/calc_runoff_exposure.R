@@ -159,7 +159,7 @@ calc_runoff_exposure <- function(water_supplies,
                ssp == ssp_sub$ssp,
                run == ssp_sub$run) %>%
         filter(year >= hist_start_year & year <= hist_end_year,
-               !year %in% hindcast_historical)
+               !year %in% unique(hindcast_historical$year))
       
       historical <- hindcast_historical %>%
         bind_rows(hindcast_future) %>%
