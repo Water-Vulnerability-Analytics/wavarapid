@@ -1,8 +1,8 @@
 #' Process coastal inundation inputs for water-supply risk analysis
 #'
 #' Buffers water supply point locations (1 km and 4 km), extracts Interagency Task
-#' Force (ITF) sea-level-rise projections for 2050 (83rd percentile), builds a master
-#' NOAA Sea Level Rise Viewer (SLRV) inundation-extent URL table from a compiled text list,
+#' Force (ITF) sea-level-rise projections for 2050 (83rd percentile), programmatically builds a master
+#' NOAA Sea Level Rise Viewer (SLRV) inundation-extent URL table by fetching per-state URL lists,
 #' determines the relevant NOAA inundation region per water supply using a two-step process:
 #' first a same-state spatial join to keep all candidate regions, then distance-based
 #' disambiguation for sites with multiple overlapping candidates — selects
@@ -23,11 +23,17 @@
 #'   Defaults to `"data/all/coast_comp_data"`.
 #' @param water_supplies An `sf` object of point geometries representing water supply locations.
 #'   Must include a `source_state` column (2-letter state code) used to group downloads/processing.
+#' @param save logical, whether to save the final output GeoPackage. Defaults to TRUE.
+#'   Intermediate files (buffered water supplies, ITF raster, inundation region bboxes)
+#'   are always written as they are required for the function to complete.
 #' @param output_dir Directory to save the datasets that will be used as inputs for the
 #'   calculation of inundation exposure.
 process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_comp_data"),
                                     water_supplies,
+                                    save       = TRUE,
                                     output_dir = here("data", "rapid", "inputs", "coast_comp")) {
+  
+  stopifnot("save is TRUE but output_dir not provided" = !save || !is.null(output_dir))
   
   # Generate the buffered water supply dataset 
   
@@ -98,7 +104,9 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   # pick the projection that we want from this raster
   # 83rd percentile projections out to the year 2050
-  projection_layer <- projections_raster[["rsl_total_IntHigh_percentiles=83_years=2050"]]
+  # v1.1 of the dataset dropped named dimensions; layers are indexed 1–14 (decades 2020–2150),
+  # so index 4 = 2050.
+  projection_layer <- projections_raster[["rsl_total_IntHigh_percentiles=83_4"]]
   
   # rotate raster from 0–360 to -180–180
   proj_layer_rotated <- terra::rotate(projection_layer)
@@ -131,7 +139,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   # Join water supply inundation projections to the water supply buffer data frame
   ws_itf_slr_proj <- left_join(all_buffer_ws, water_supply_inundation_values, by = "ID") %>%
-    rename(inun_proj_mm = `rsl_total_IntHigh_percentiles=83_years=2050`)
+    rename(inun_proj_mm = `rsl_total_IntHigh_percentiles=83_4`)
   
   # Save the dataset
   sf::st_write(ws_itf_slr_proj,
@@ -150,33 +158,43 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   # ITF SLR projections in order to find the correct inundation surface given the amount
   # of SLR the ITF projected for some region specific to each watershed.
   
-  # The process for generating the NOAA inundation surface datasets is not simple.
-  # This is because the inundation surface datasets are large and stored in
+  # The inundation surface datasets used here are stored in
   # [Sea Level Rise Viewer Data Download](https://coast.noaa.gov/slrdata/).
-  
-  # There is no clear way to easily programmatically download data from this source.
-  # They provide text data with URL links for the raster data, but that text data is also not
-  # readily accessible via an API. Here is an [example](https://coast.noaa.gov/slrdata/Extent_Rasters/CA/URLlist_CA.txt)
-  # of what one of these text files looks like. The process to programmatically download this data is,
-  # broadly: compile these text files into one master text file, convert this master
-  # text file into a form that is easily stored as a dataframe, use the information
-  # in this dataframe to download the appropriate data via the provided URLs.
-  
-  # We will use this section to download the appropriate NOAA SLRV inundation surface datasets.
-  
+  # NOAA provides per-state URL lists for the raster data following this pattern:
+  # https://coast.noaa.gov/slrdata/Extent_Rasters/{STATE}/URLlist_{STATE}.txt
+  # (see https://coast.noaa.gov/slrdata/Extent_Rasters/CA/URLlist_CA.txt for an example).
+
+  # We fetch each state's URL list programmatically, compile them into a master text file,
+  # then parse that file into a dataframe. The inundation surface data are stored in feet,
+  # so we convert depths to millimeters to match the ITF SLR projections.
+
   ## Generate the master inundation dataset URL link dataframe ----
-  
-  # Here we convert the master inundation dataset URL text file into the master
-  # inundation dataset URL dataframe. The inundation surface data is stored as feet
-  # so we will need to convert it to millimeters to join it to the ITF SLR projections,
-  # which are themselves in mm.
-  
-  # Note that the creation of the master inundation dataset URL text file was made outside
-  # of R. I went into each state's download repository to copy the URL text file
-  # for each state into the master text file.
-  
+
   # File path for the compiled master inundation dataset URL text file
   tif_txt_path <- here(coast_dir_path, "NOAA_SLRV_2022", "ALL_extent_raster_URLlist.txt")
+
+  state_codes <- c("AK", "AL", "AS", "CA", "CT", "DC", "DE", "FL", "GA",
+                   "GU", "HI", "LA", "MA", "MD", "ME", "MP", "MS", "NC",
+                   "NH", "NJ", "NY", "OR", "PA", "PR", "RI", "SC", "TX",
+                   "VA", "VI", "WA")
+
+  # Initialize (or clear) the master file before appending
+  file.create(tif_txt_path)
+
+  walk(
+    state_codes,
+    function(state_code) {
+      txt_url   <- paste0("https://coast.noaa.gov/slrdata/Extent_Rasters/", state_code, "/URLlist_", state_code, ".txt")
+      url_lines <- readLines(txt_url)
+      lines     <- url_lines[trimws(url_lines) != ""]
+
+      if (length(lines) > 0) {
+        file_conn <- file(tif_txt_path, open = "at")
+        writeLines(lines, file_conn)
+        close(file_conn)
+      }
+    }
+  )
   
   # Read in the text file as a vector
   tif_vec <- read_lines(tif_txt_path)
@@ -261,7 +279,15 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
       })
   }
   
-  reference_tif_df <- tif_df %>% 
+  # Before we download the data again we are going to clear out the Extent Rasters
+  # directory in case there is stale data in it.
+  extent_rasters_dir <- here(output_dir, "Extent_Rasters")
+  if (dir.exists(extent_rasters_dir)) {
+    unlink(extent_rasters_dir, recursive = TRUE)
+  }
+  dir.create(extent_rasters_dir, recursive = TRUE)
+
+  reference_tif_df <- tif_df %>%
     group_by(inun_region) %>%
     slice_min(depth_ft)
   
@@ -385,9 +411,11 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
     relocate(geometry, .after = last_col()) %>%
     filter(!is.na(ref_file), !is.na(proj_file))
   
-  sf::st_write(updated_ws_inun_proj,
-               here(output_dir, "buff_ws_inun_regions.gpkg"), # Buffered water supplies with inundation regions
-               append = FALSE)
+  if (save) {
+    sf::st_write(updated_ws_inun_proj,
+                 here(output_dir, "buff_ws_inun_regions.gpkg"),
+                 append = FALSE)
+  }
   
   # Environment clean up
   rm(ws_inun_regions, download_tif_df, reference_tif_df, relevant_ws_inun_proj,

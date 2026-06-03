@@ -6,7 +6,7 @@
 #' are assigned NA (not at coastal SWI risk). Those points that are assigned
 #' SWI values are then weighted based on their distance to the coast, using the
 #' same dataset which was produced in `process_coastal_weights()`. The raw
-#' migration value is divided by `shore_dist_m` to produce a dimensionless ratio:
+#' migration value is divided by `coast_dist_m` to produce a dimensionless ratio:
 #' what fraction of the land-to-coast corridor is projected to be intruded.
 #'
 #' Case_C = combined recharge-change + sea-level-rise driven inland migration
@@ -18,7 +18,7 @@
 #'   contain columns `wsd_source_id`, `park_unit`, and `park_name`.
 #' @param swi_pts Saltwater intrusion points. Character path to swi_points.gpkg produced by
 #'   `process_swi_data()`. Defaults to `here("data", "rapid", "inputs", "swi", "swi_points.gpkg")`.
-#' @param shore_distances character path to shore_distances.csv produced by
+#' @param coast_distances character path to coast_distances.csv produced by
 #'   `process_coastal_weights()`.
 #' @param save logical, whether to save output CSV. Defaults to FALSE.
 #' @param output_dir character, directory path for saving files. Required when
@@ -33,7 +33,7 @@
 calc_swi_exposure <- function(
     water_supplies,
     swi_pts    = here("data", "rapid", "inputs", "swi", "swi_points.gpkg"),
-    shore_distances = here("data", "rapid", "inputs", "coast_comp", "shore_distances.csv"),
+    coast_distances = here("data", "rapid", "inputs", "coast_comp", "coast_distances.csv"),
     save       = FALSE,
     output_dir = NULL,
     verbose    = TRUE) {
@@ -45,7 +45,7 @@ calc_swi_exposure <- function(
     "water_supplies missing wsd_source_id column" = "wsd_source_id" %in% names(water_supplies),
     "water_supplies missing park_unit column"     = "park_unit"     %in% names(water_supplies),
     "water_supplies missing park_name column"     = "park_name"     %in% names(water_supplies),
-    "shore distances file does not exist" = file.exists(shore_distances)
+    "coast distances file does not exist" = file.exists(coast_distances)
   )
 
   if (verbose) start_time <- Sys.time()
@@ -80,14 +80,14 @@ calc_swi_exposure <- function(
                    " | NA (> 50 km): ", nrow(swi_assigned) - n_coastal))
   }
 
-  # Divide by distance to coast: raw_swi_migration / shore_dist_m gives the
+  # Divide by distance to coast: raw_swi_migration / coast_dist_m gives the
   # fraction of the land-to-coast corridor projected to be intruded (dimensionless)
-  shore_distances_df <- read_csv(shore_distances, show_col_types = FALSE)
+  coast_distances_df <- read_csv(coast_distances, show_col_types = FALSE)
 
   swi_weighted <- swi_assigned %>%
-    left_join(shore_distances_df, by = c("wsd_source_id", "park_unit", "park_name")) %>%
-    mutate(raw_swi_migration = raw_swi_migration / shore_dist_m) %>%
-    select(-shore_dist_m)
+    left_join(coast_distances_df, by = c("wsd_source_id", "park_unit", "park_name")) %>%
+    mutate(raw_swi_migration = raw_swi_migration / coast_dist_m) %>%
+    select(-coast_dist_m)
   
   # Standardize 
   results <- swi_weighted %>%

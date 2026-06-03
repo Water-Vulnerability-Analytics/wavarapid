@@ -3,33 +3,43 @@
 #' Assigns each NPS water supply the worst-case model 100-year return period
 #' storm surge change (future 2021-2050 minus historical 1985-2014, in meters)
 #' from the nearest coastal station in the Muis et al. (2023) CMIP6 dataset.
-#' Water supplies whose nearest station is more than 50 km away receive NA (too
-#' far from any surge measurement point to be considered in this analysis).
-#' Assigned values are then divided by `shore_dist_m` from
-#' `process_coastal_weights()` to weight exposure by coastal proximity.
+#' Two separate distance checks are applied:
+#' 1. Water supplies whose nearest surge *station* is more than 50 km away
+#'    receive NA — they are too far from any measurement point to be assigned
+#'    a meaningful surge value.
+#' 2. For supplies that pass that threshold, the assigned surge value is divided
+#'    by `coast_dist_m` from `process_coastal_weights()` (distance to the NOAA
+#'    CUSP shoreline) to weight exposure by coastal proximity. These are
+#'    different distances: one screens for data coverage, the other scales the 
+#'    exposure value.
 #'
 #' Source: Muis et al. (2023), "Global Projections of Storm Surges Using
 #' High-Resolution CMIP6 Climate Models", Earth's Future.
-#' Note: SSP5-8.5 only — no SSP2-4.5 variant exists in this dataset.
+#' SSP5-8.5 only — the only scenario available in this dataset. Uses best-fit
+#' (central estimate) only; low- and high-bound confidence intervals exist in
+#' the source data but are not used. See `process_storm_surge_data()` for
+#' full data provenance.
 #'
 #' @param water_supplies sf object with water supply point locations
 #' @param storm_surge_stations character path to the preprocessed CONUS storm
 #'   surge GeoPackage produced by `process_storm_surge_data()`, or an sf
 #'   object already loaded into memory
-#' @param shore_distances character path to shore_distances.csv produced by
+#' @param coast_distances character path to coast_distances.csv produced by
 #'   `process_coastal_weights()`. Defaults to the standard rapid inputs path.
 #' @param save logical, whether to save output to a CSV file
 #' @param output_dir character, directory path for saving files
 #' @param verbose logical, whether to show progress messages
 #'
 #' @return tibble with `wsd_source_id`, `park_unit`, `park_name`, and
-#'   standardized storm surge exposure columns (`raw_surge_change_max`,
-#'   `norm_surge_change_max`, `rank_surge_change_max`). Water supplies >50 km
-#'   from any surge station have `NA` for all three columns.
+#'   standardized storm surge exposure columns for both absolute change
+#'   (`raw_surge_change_max`, `norm_surge_change_max`, `rank_surge_change_max`)
+#'   and percent change (`raw_surge_pct_change_max`, `norm_surge_pct_change_max`,
+#'   `rank_surge_pct_change_max`), each weighted by `coast_dist_m`. Water
+#'   supplies >50 km from any surge station have `NA` for all columns.
 #'
 calc_storm_surge_exposure <- function(water_supplies,
                                       storm_surge_stations,
-                                      shore_distances = here("data", "rapid", "inputs", "coast_comp", "shore_distances.csv"),
+                                      coast_distances = here("data", "rapid", "inputs", "coast_comp", "coast_distances.csv"),
                                       save = FALSE,
                                       output_dir = NULL,
                                       verbose = TRUE) {
@@ -40,7 +50,7 @@ calc_storm_surge_exposure <- function(water_supplies,
     "storm_surge_stations must be a file path or sf object" =
       is.character(storm_surge_stations) || inherits(storm_surge_stations, "sf"),
     "save is TRUE but output_dir not provided" = !save || !is.null(output_dir),
-    "shore distances file does not exist" = file.exists(shore_distances)
+    "coast distances file does not exist" = file.exists(coast_distances)
   )
 
   if (verbose) start_time <- Sys.time()
@@ -66,9 +76,9 @@ calc_storm_surge_exposure <- function(water_supplies,
   nn_result <- nngeo::st_nn(
     ws_proj,
     stations_proj,
-    k          = 1,
+    k = 1,
     returnDist = TRUE,
-    progress   = verbose
+    progress = verbose
   )
 
   nn_idx  <- unlist(nn_result$nn)
@@ -79,26 +89,32 @@ calc_storm_surge_exposure <- function(water_supplies,
     sf::st_drop_geometry() %>%
     select(wsd_source_id, park_unit, park_name) %>%
     mutate(
-      nn_dist_m          = nn_dist,
-      raw_surge_change_max = stations_proj$max_surge_change_m[nn_idx]
+      nn_dist_m                = nn_dist,
+      raw_surge_change_max     = stations_proj$max_surge_change_m[nn_idx],
+      raw_surge_pct_change_max = stations_proj$max_surge_pct_change[nn_idx]
     ) %>%
     # Supplies > 50 km from the nearest surge station receive NA
     mutate(
-      raw_surge_change_max = if_else(nn_dist_m > 50000, NA_real_, raw_surge_change_max)
+      raw_surge_change_max     = if_else(nn_dist_m > 50000, NA_real_, raw_surge_change_max),
+      raw_surge_pct_change_max = if_else(nn_dist_m > 50000, NA_real_, raw_surge_pct_change_max)
     ) %>%
     select(-nn_dist_m)
 
-  # Divide by distance to coast to weight exposure by coastal proximity
-  shore_distances_df <- read_csv(shore_distances, show_col_types = FALSE)
+  # Divide both metrics by distance to coast to weight exposure by coastal proximity
+  coast_distances_df <- read_csv(coast_distances, show_col_types = FALSE)
 
   results <- results %>%
-    left_join(shore_distances_df, by = c("wsd_source_id", "park_unit", "park_name")) %>%
-    mutate(raw_surge_change_max = raw_surge_change_max / shore_dist_m) %>%
-    select(-shore_dist_m)
+    left_join(coast_distances_df, by = c("wsd_source_id", "park_unit", "park_name")) %>%
+    mutate(
+      raw_surge_change_max     = raw_surge_change_max     / coast_dist_m,
+      raw_surge_pct_change_max = raw_surge_pct_change_max / coast_dist_m
+    ) %>%
+    select(-coast_dist_m)
 
   # Standardize: invert = FALSE — higher surge change = higher exposure
   final_results <- results %>%
-    add_standardized_indicators("raw_surge_change_max", invert = FALSE)
+    add_standardized_indicators("raw_surge_change_max",     invert = FALSE) %>%
+    add_standardized_indicators("raw_surge_pct_change_max", invert = FALSE)
 
   # Save results
   if (save) {

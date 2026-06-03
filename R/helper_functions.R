@@ -19,7 +19,7 @@ add_standardized_indicators <- function(data, prefix, invert = FALSE) {
 
     data <- data %>%
       mutate(
-        !!norm_col := scales::rescale(.data[[col]], to = c(0, 1)),
+        !!norm_col := if (all(is.na(.data[[col]]))) NA_real_ else scales::rescale(.data[[col]], to = c(0, 1)),
         !!rank_col := cume_dist(.data[[col]]) * 100
       )
 
