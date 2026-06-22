@@ -18,14 +18,17 @@
 #'
 #' @param data_path character, path to output_data.txt from the Adams et al. 2024 dataset.
 #'   Defaults to `here("data", "all", "coast_comp_data", "adams_swi_2024", "data", "output_data.txt")`.
+#' @param save logical, whether to save output GeoPackage. Defaults to TRUE.
 #' @param output_dir character, directory where gpkg file is written.
 #'   Defaults to `here("data", "rapid", "inputs", "swi")`.
 #'
 process_swi_data <- function(
     data_path  = here("data", "all", "coast_comp_data", "adams_swi_2024", "data", "output_data.txt"),
+    save       = TRUE,
     output_dir = here("data", "rapid", "inputs", "swi")) {
 
-  stopifnot("output_data.txt not found — check data_path" = file.exists(data_path))
+  stopifnot("output_data.txt not found — check data_path" = file.exists(data_path),
+            "save is TRUE but output_dir not provided"    = !save || !is.null(output_dir))
 
   swi_pts <- read.table(data_path, header = TRUE, sep = " ") %>%
     as_tibble() %>%
@@ -35,9 +38,12 @@ process_swi_data <- function(
     filter(lon >= -125, lon <= -66, lat >= 24, lat <= 50) %>%
     st_as_sf(coords = c("lon", "lat"), crs = 4326, remove = FALSE)
 
-  if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+  if (save) {
+    if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+    pts_path <- file.path(output_dir, "swi_points.gpkg")
+    st_write(swi_pts, pts_path, delete_dsn = TRUE, quiet = TRUE)
+  }
 
-  pts_path <- file.path(output_dir, "swi_points.gpkg")
-  st_write(swi_pts, pts_path, delete_dsn = TRUE, quiet = TRUE)
+  return(swi_pts)
 
 }
