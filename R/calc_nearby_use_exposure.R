@@ -1,4 +1,4 @@
-#' Calculate Water Withdrawal Exposure Indicator
+#' Calculate Nearby Water Withdrawal Exposure Indicator
 #'
 #' Calculates changes in water withdrawals for counties containing water supplies
 #' using historical data from USGS and future projections from Warziniack et al. 2022.
@@ -154,7 +154,7 @@ calc_nearby_use_exposure <- function(water_supplies,
   if (verbose) {
     end_time <- Sys.time()
     total_time <- end_time - start_time
-    message("\nWater withdrawal exposure processing completed in ",
+    message("\nNearby water withdrawal exposure processing completed in ",
             round(total_time, 2), " ", attr(total_time, "units"))
   }
   
