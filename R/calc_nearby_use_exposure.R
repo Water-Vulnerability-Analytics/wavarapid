@@ -122,7 +122,7 @@ calc_nearby_use_exposure <- function(water_supplies,
       left_join(p90_values, by = c("fips")) %>%
       left_join(model_fractions, by = c("fips")) %>%
       # add standardized indicators using helper function
-      add_standardized_indicators("raw_use_change", invert = TRUE) %>%
+      add_standardized_indicators("raw_use_change", invert = FALSE) %>%
       add_standardized_indicators("raw_models_showing_increase") %>%
       right_join(., points_with_counties, by = "fips") %>%
       # reorder columns following standardized pattern
