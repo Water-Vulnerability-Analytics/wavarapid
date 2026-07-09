@@ -1,4 +1,4 @@
-#' Calculate Nearby Water Use Sensitivity Indicator
+#' Calculate Nearby Water Withdrawals/Use Sensitivity Indicator
 #'
 #' Calculates a county-level nearby water use sensitivity indicator for water supplies
 #' based on historical total water withdrawals from USGS data. Water supplies are

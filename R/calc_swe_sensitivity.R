@@ -112,12 +112,12 @@ calc_swe_sensitivity <- function(water_supplies,
            mk_p_value = map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$p.value),
            mk_significant = mk_p_value < 0.05) %>%
     select(-data, -sen, -mk, -mk_p_value, -mk_tau) %>%
-    mutate(trend_direction = case_when(is.na(raw_slope_swe) ~ NA_character_,
+    mutate(trend_direction = case_when(is.na(raw_slope_swe) ~ "no trend",
                                        raw_slope_swe > 0 ~ "increasing",
                                        raw_slope_swe < 0 ~ "decreasing",
                                        TRUE ~ "no change"),
            raw_percent_slope_swe = ifelse(is.na(raw_slope_swe) | is.na(raw_avg_swe) | raw_avg_swe == 0,
-                                          NA_real_,
+                                          0,
                                           (raw_slope_swe / raw_avg_swe) * 100)) %>%
     # add standardized indicators using helper function
     add_standardized_indicators("raw_slope_swe", invert = TRUE) %>%

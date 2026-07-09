@@ -22,7 +22,7 @@
 calc_precip_sensitivity <- function(water_supplies,
                                     precip_data = "data/rapid/inputs/loca2_precipitation_water_supplies/",
                                     historical,
-                                    water_year,
+                                    water_year = TRUE,
                                     save = FALSE,
                                     output_dir = NULL,
                                     verbose = TRUE) {
@@ -41,37 +41,7 @@ calc_precip_sensitivity <- function(water_supplies,
     message("Starting historical precip sensitivity calculation...")
   }
   
-  # use raw precip data (denoted with "livneh")
-  files <- grep("livneh", list.files(precip_data, full.names = TRUE, pattern = "precip"), value = TRUE, invert = FALSE)
-  
-  files_dt <- data.table(file = files)
-  
-  # extract years
-  files_dt[, `:=`(
-    year_single = as.integer(str_extract(file, "(?<!\\d)(\\d{4})(?=\\.nc)")),
-    year_start = as.integer(str_extract(file, "(\\d{4})(?=-\\d{4})")),
-    year_end = as.integer(str_extract(file, "(?<=-)(\\d{4})(?=\\.)"))
-  )]
-  
-  # fill single-year files into start/end
-  files_dt[!is.na(year_single), `:=`(
-    year_start = year_single,
-    year_end = year_single
-  )]
-  
-  if(water_year == FALSE){
-    # keep files overlapping either period
-    files_subset <- files_dt[
-      (year_end >= hist_start_year & year_start <= hist_end_year) 
-    ]
-  } else {
-    # keep files overlapping either period (with wyear accounted for)
-    files_subset <- files_dt[
-      (year_end >= hist_start_year - 1 & year_start <= hist_end_year) 
-    ]
-  }
-  
-  files <- files_subset$file
+  files <- grep("jay_alder", list.files(precip_data, full.names = TRUE, pattern = "pr"), value = TRUE, invert = FALSE)
   
   if (length(files) == 0) {
     stop("No processed precip files found. Check your input data and file paths.")
@@ -92,7 +62,7 @@ calc_precip_sensitivity <- function(water_supplies,
       dplyr::filter(wsd_source_id %in% water_supplies$wsd_source_id)
     
     data.table::as.data.table(raw)[
-      ,       year := if (water_year) {
+      ,  year := if (water_year) {
         year(date) + fifelse(month(date) >= 10, 1L, 0L)
       } else {
         year(date)
@@ -124,30 +94,29 @@ calc_precip_sensitivity <- function(water_supplies,
     dplyr::arrange(wsd_source_id, year) %>%
     dplyr::group_by(wsd_source_id, park_unit) %>%
     dplyr::summarize(raw_avg_precip = mean(total_precip, na.rm = TRUE),
-                     n_years = sum(!is.na(total_precip)),
                      data = list(dplyr::pick(dplyr::everything())),
                      .groups = "drop") %>%
-    dplyr::mutate(n_years = map_int(data, ~ sum(!is.na(.x$total_precip))),
-                  sen = map(data, ~ {
-                    x <- .x$total_precip
-                    if (sum(!is.na(x)) >= 3) sens.slope(x) else NULL
-                  }),
-                  mk = map(data, ~ {
-                    x <- .x$total_precip
-                    if (sum(!is.na(x)) >= 3) mk.test(x) else NULL
-                  }),
-                  raw_slope_precip = map_dbl(sen, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
-                  mk_tau = map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
-                  mk_p_value = map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$p.value),
-                  mk_significant = mk_p_value < 0.05) %>%
-    dplyr::select(-data, -sen, -mk, -mk_p_value, -mk_tau) %>%
-    dplyr::mutate(trend_direction = case_when(is.na(raw_slope_precip) ~ NA_character_,
-                                              raw_slope_precip > 0 ~ "increasing",
-                                              raw_slope_precip < 0 ~ "decreasing",
-                                              TRUE ~ "no change"),
-                  raw_percent_slope_precip = ifelse(is.na(raw_slope_precip) | is.na(raw_avg_precip) | raw_avg_precip == 0,
-                                                    NA_real_,
-                                                    (raw_slope_precip / raw_avg_precip) * 100)) %>%
+    mutate(n_years = map_int(data, ~ sum(!is.na(.x$total_precip))),
+           sen = map(data, ~ {
+             x <- .x$total_precip
+             if (sum(!is.na(x)) >= 3) sens.slope(x) else NULL
+           }),
+           mk = map(data, ~ {
+             x <- .x$total_precip
+             if (sum(!is.na(x)) >= 3) mk.test(x) else NULL
+           }),
+           raw_slope_precip = map_dbl(sen, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
+           mk_tau = map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
+           mk_p_value = map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$p.value),
+           mk_significant = mk_p_value < 0.05) %>%
+    select(-data, -sen, -mk, -mk_p_value, -mk_tau) %>%
+    mutate(trend_direction = case_when(is.na(raw_slope_precip) ~ NA_character_,
+                                       raw_slope_precip > 0 ~ "increasing",
+                                       raw_slope_precip < 0 ~ "decreasing",
+                                       TRUE ~ "no change"),
+           raw_percent_slope_precip = ifelse(is.na(raw_slope_precip) | is.na(raw_avg_precip) | raw_avg_precip == 0,
+                                             NA_real_,
+                                             (raw_slope_precip / raw_avg_precip) * 100)) %>%
     # add standardized indicators using helper function
     add_standardized_indicators("raw_slope_precip", invert = TRUE) %>%
     add_standardized_indicators("raw_avg_precip", invert = TRUE) %>%
