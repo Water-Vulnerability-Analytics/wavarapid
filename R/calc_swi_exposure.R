@@ -86,7 +86,9 @@ calc_swi_exposure <- function(
 
   swi_weighted <- swi_assigned %>%
     left_join(coast_distances_df, by = c("wsd_source_id", "park_unit", "park_name")) %>%
-    mutate(raw_swi_migration = raw_swi_migration / coast_dist_m) %>%
+    mutate(raw_swi_migration = raw_swi_migration / coast_dist_m,
+           # if migration exceeds distance to coast, cap at 1:
+           raw_swi_migration = pmin(raw_swi_migration, 1)) %>%
     select(-coast_dist_m)
   
   # Standardize 

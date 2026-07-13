@@ -237,7 +237,9 @@ calc_swe_exposure <- function(water_supplies,
       
     }
     
-    swe_change <- bind_rows(swe_change_sub)
+    swe_change <- bind_rows(swe_change_sub) %>%
+     mutate(swe_change = ifelse(is.na(swe_change), 0, swe_change),
+            percent_change = ifelse(is.na(percent_change), 0, percent_change))
     
   }
   
