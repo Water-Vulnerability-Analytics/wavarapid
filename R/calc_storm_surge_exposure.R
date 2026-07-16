@@ -105,19 +105,14 @@ calc_storm_surge_exposure <- function(water_supplies,
   coast_distances_df <- read_csv(coast_distances, show_col_types = FALSE)
   
   results <- results %>%
-    left_join(
-      coast_distances_df,
-      by = c("wsd_source_id", "park_unit", "park_name")
-    ) %>%
+    left_join(coast_distances_df, by = c("wsd_source_id", "park_unit", "park_name")) %>%
     # Apply a bounded coastal-proximity weight so surge exposure decreases with
     # distance from the coast without producing extreme values near zero distance.
-    mutate(
-      coast_weight                       = pmax(0, 1 - pmin(coast_dist_m, 50000) / 50000),
-      raw_dist_wght_surge_change_max     = raw_surge_change_max * coast_weight,
-      raw_dist_wght_surge_pct_change_max = raw_surge_pct_change_max * coast_weight,
-      old_dist_surge_change_max          = raw_surge_change_max / coast_dist_m,
-      old_dist_surge_pct_change_max      = raw_surge_pct_change_max / coast_dist_m
-    ) %>%
+    mutate(coast_weight = pmax(0, 1 - pmin(coast_dist_m, 50000) / 50000),
+           raw_dist_wght_surge_change_max = raw_surge_change_max * coast_weight,
+           raw_dist_wght_surge_pct_change_max = raw_surge_pct_change_max * coast_weight,
+           old_dist_surge_change_max = raw_surge_change_max / coast_dist_m,
+           old_dist_surge_pct_change_max = raw_surge_pct_change_max / coast_dist_m) %>%
     select(-coast_dist_m, -coast_weight)
   
   # Standardize: invert = FALSE — higher surge change = higher exposure
