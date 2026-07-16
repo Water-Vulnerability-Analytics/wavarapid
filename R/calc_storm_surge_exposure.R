@@ -10,7 +10,7 @@
 #' 2. For supplies that pass that threshold, the assigned surge value is divided
 #'    by `coast_dist_m` from `process_coastal_weights()` (distance to the NOAA
 #'    CUSP shoreline) to weight exposure by coastal proximity. These are
-#'    different distances: one screens for data coverage, the other scales the 
+#'    different distances: one screens for data coverage, the other scales the
 #'    exposure value.
 #'
 #' Source: Muis et al. (2023), "Global Projections of Storm Surges Using
@@ -82,17 +82,17 @@ calc_storm_surge_exposure <- function(water_supplies,
   )
   
   nn_idx  <- unlist(nn_result$nn)
-  nn_dist <- unlist(nn_result$dist)   # meters
+  nn_dist <- unlist(nn_result$dist) # meters
   
   # Build results table
   results <- water_supplies %>%
     sf::st_drop_geometry() %>%
     select(wsd_source_id, park_unit, park_name) %>%
     mutate(
-      nn_dist_m                = nn_dist,
-      raw_surge_change_max     = stations_proj$max_surge_change_m[nn_idx],
-      raw_surge_pct_change_max = stations_proj$max_surge_pct_change[nn_idx],
-      raw_surge_model_agreement = stations_proj$model_agreement[nn_idx],
+      nn_dist_m                 = nn_dist,
+      raw_surge_change_max      = stations_proj$max_surge_change_m[nn_idx],
+      raw_surge_pct_change_max  = stations_proj$max_surge_pct_change[nn_idx],
+      raw_surge_model_agreement = stations_proj$model_agreement[nn_idx]
     ) %>%
     # Supplies > 50 km from the nearest surge station receive NA
     mutate(
@@ -105,27 +105,41 @@ calc_storm_surge_exposure <- function(water_supplies,
   coast_distances_df <- read_csv(coast_distances, show_col_types = FALSE)
   
   results <- results %>%
-    left_join(coast_distances_df,
-              by = c("wsd_source_id", "park_unit", "park_name")) %>%
+    left_join(
+      coast_distances_df,
+      by = c("wsd_source_id", "park_unit", "park_name")
+    ) %>%
     # Apply a bounded coastal-proximity weight so surge exposure decreases with
     # distance from the coast without producing extreme values near zero distance.
-    mutate(coast_weight = pmax(0, 1 - pmin(coast_dist_m, 50000) / 50000),
-           raw_dist_wght_surge_change_max = raw_surge_change_max * coast_weight,
-           raw_dist_wght_surge_pct_change_max = raw_surge_pct_change_max * coast_weight,
-           old_dist_surge_change_max = raw_surge_change_max /  coast_dist_m,,
-           old_dist_surge_pct_change_max = raw_surge_pct_change_max  / coast_dist_m) %>%
+    mutate(
+      coast_weight                       = pmax(0, 1 - pmin(coast_dist_m, 50000) / 50000),
+      raw_dist_wght_surge_change_max     = raw_surge_change_max * coast_weight,
+      raw_dist_wght_surge_pct_change_max = raw_surge_pct_change_max * coast_weight,
+      old_dist_surge_change_max          = raw_surge_change_max / coast_dist_m,
+      old_dist_surge_pct_change_max      = raw_surge_pct_change_max / coast_dist_m
+    ) %>%
     select(-coast_dist_m, -coast_weight)
   
   # Standardize: invert = FALSE — higher surge change = higher exposure
   final_results <- results %>%
-    add_standardized_indicators("raw_dist_wght_surge_change_max",     invert = FALSE) %>%
-    add_standardized_indicators("raw_dist_wght_surge_pct_change_max", invert = FALSE)
+    add_standardized_indicators(
+      "raw_dist_wght_surge_change_max",
+      invert = FALSE
+    ) %>%
+    add_standardized_indicators(
+      "raw_dist_wght_surge_pct_change_max",
+      invert = FALSE
+    )
   
   # Save results
   if (save) {
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     
-    filename <- file.path(output_dir, paste0("storm_surge_exposure_", Sys.Date(), ".csv"))
+    filename <- file.path(
+      output_dir,
+      paste0("storm_surge_exposure_", Sys.Date(), ".csv")
+    )
+    
     write_csv(final_results, filename)
     
     if (verbose) message("Results saved to: ", filename)
@@ -135,8 +149,11 @@ calc_storm_surge_exposure <- function(water_supplies,
   if (verbose) {
     end_time   <- Sys.time()
     total_time <- end_time - start_time
-    message("\nStorm surge exposure processing completed in ",
-            round(total_time, 2), " ", attr(total_time, "units"))
+    
+    message(
+      "\nStorm surge exposure processing completed in ",
+      round(total_time, 2), " ", attr(total_time, "units")
+    )
   }
   
   return(final_results)
