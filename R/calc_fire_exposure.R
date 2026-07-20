@@ -5,7 +5,7 @@
 #' for water supply pyromes across multiple climate scenarios.
 #' 
 #' @param water_supplies sf object with water supply locations
-#' @param fire_prob_data fire probability data from Gao et al. 2021
+#' @param fire_prob_data fire probability data from Gao et al. 2021 calculated in `rapid_data_processing.Rmd`
 #' @param pyrome_data sf object of CONUS pyromes
 #' @param save logical, whether to save output
 #' @param output_dir character, directory path for saving files
@@ -33,6 +33,42 @@ calc_fire_exposure <- function(water_supplies,
   pyrome_data <- vect(pyrome_data)
   water_supplies <- vect(water_supplies)
   
+  # Calc percentiles and model agreement for all pyromes
+  # Pull 10th, 50th and 90th percentile values for each pyrome
+  pyromes_selected <- fire_prob_data %>%
+    group_by(PYROME) %>%
+    slice(c(which.min(abs(
+      delta_fp - quantile(delta_fp, 0.1)
+    )), which.min(abs(
+      delta_fp - quantile(delta_fp, 0.5)
+    )), which.min(abs(
+      delta_fp - quantile(delta_fp, 0.9)
+    )))) %>%
+    mutate(
+      percentile = case_when(
+        delta_fp == delta_fp[which.min(abs(delta_fp - quantile(delta_fp, 0.1)))] ~ "p10",
+        delta_fp == delta_fp[which.min(abs(delta_fp - quantile(delta_fp, 0.5)))] ~ "p50",
+        delta_fp == delta_fp[which.min(abs(delta_fp - quantile(delta_fp, 0.9)))] ~ "p90"
+      )
+    ) %>%
+    ungroup() %>%
+    pivot_wider(
+      names_from = percentile,
+      values_from = c(GCM, delta_fp),
+      names_sep = "_"
+    )
+  
+  # calculate fraction of models showing decrease
+  model_fractions <- fire_prob_data %>%
+    group_by(PYROME) %>%
+    summarize(
+      fire_models_showing_increase = 100 * sum(delta_fp > 0, na.rm = TRUE) / n(),
+      .groups = "drop"
+    )
+  
+  # join percentiles and model agreements
+  fire_prob_cleaned <- left_join(pyromes_selected, model_fractions, by = "PYROME")
+  
   # Create progress bar
   if (verbose) {
     pb <- progress::progress_bar$new(
@@ -54,16 +90,11 @@ calc_fire_exposure <- function(water_supplies,
     if (nrow(ws_pyrome) == 0) {
       nearest_idx <- terra::nearest(water_supplies[i, ], pyrome_data)$to_id
       ws_pyrome <- pyrome_data[nearest_idx, ]
-    }    
+    }
     
     # Extract fire probability data for this pyrome
-    fp_data <- fire_prob_data %>% 
+    fp_data <- fire_prob_cleaned %>% 
       filter(PYROME %in% ws_pyrome$PYROME) %>%
-      summarise(
-        delta_fp_p10 = mean(delta_fp_p10, na.rm = TRUE),
-        delta_fp_p50 = mean(delta_fp_p50, na.rm = TRUE),
-        delta_fp_p90 = mean(delta_fp_p90, na.rm = TRUE)
-      ) %>%
       mutate(
         wsd_source_id = water_supplies[i, ]$wsd_source_id,
         park_unit = water_supplies[i, ]$park_unit,
@@ -80,7 +111,8 @@ calc_fire_exposure <- function(water_supplies,
     rename(
       raw_fire_prob_change_p10 = delta_fp_p10,
       raw_fire_prob_change_p50 = delta_fp_p50,
-      raw_fire_prob_change_p90 = delta_fp_p90
+      raw_fire_prob_change_p90 = delta_fp_p90,
+      raw_fire_models_showing_increase = fire_models_showing_increase
     ) %>%
     # Use helper function to add normalized and ranked columns
     add_standardized_indicators("raw_fire_prob_change")
