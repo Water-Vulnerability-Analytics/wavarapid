@@ -69,7 +69,7 @@ calc_groundwater_depth_sensitivity <- function(water_supplies,
   # Restrict to groundwater-sourced water supplies
   groundwater_supplies <- water_supplies %>%
     sf::st_drop_geometry() %>%
-    dplyr::filter(grepl("groundwater", source_type)) %>%
+    dplyr::filter(grepl("groundwater|spring", source_type)) %>%
     dplyr::mutate(well_depth = as.numeric(well_depth)) %>%
     dplyr::select(wsd_source_id, park_unit, park_name, well_depth) %>%
     dplyr::distinct(wsd_source_id, .keep_all = TRUE)
