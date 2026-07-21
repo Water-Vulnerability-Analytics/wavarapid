@@ -14,8 +14,9 @@
 #'   1. `wtd_all_sites.csv` — wsd_source_id, park_unit, park_name, wtd_point_m
 #'
 #' Point extraction (rather than a buffer mean) was validated against WSD
-#' sites with recorded static water levels in `Explore/Explore_GW_Depths.Rmd`
-#' and found to best match the published model's own performance metrics.
+#' sites with recorded static water levels in
+#' `Explore/explore_groundwater_depth.Rmd` and found to best match the
+#' published model's own performance metrics.
 #'
 #' Citation: Zenodo record 18504963,
 #' https://ngwa.onlinelibrary.wiley.com/doi/10.1111/gwat.13362
@@ -98,11 +99,18 @@ process_groundwater_depth <- function(
       pt_xy <- xy_native[i, ]
       pt_vect <- terra::vect(matrix(pt_xy, nrow = 1), type = "points", crs = wtd_crs)
       buffer_m <- start_buffer_m
-      
+
       repeat {
 
-        pt_crop <- terra::crop(wtd_worker, terra::buffer(pt_vect, width = buffer_m))
-        valid_pts <- terra::as.points(pt_crop, values = TRUE, na.rm = TRUE)
+        # crop() alone only restricts to buffer()'s rectangular bounding
+        # box, not the circular buffer itself, which would let a valid cell
+        # near a box corner (up to buffer_m * sqrt(2) away) get accepted as
+        # if it were within buffer_m. mask() to the circular polygon so only
+        # cells genuinely within the search radius are ever considered.
+        pt_buf <- terra::buffer(pt_vect, width = buffer_m)
+        pt_crop <- terra::crop(wtd_worker, pt_buf)
+        pt_mask <- terra::mask(pt_crop, pt_buf)
+        valid_pts <- terra::as.points(pt_mask, values = TRUE, na.rm = TRUE)
 
         if (length(valid_pts) > 0) {
           # terra::nearest is CRS-aware (planar distance for projected rasters,
@@ -118,8 +126,10 @@ process_groundwater_depth <- function(
           }
           return(NA_real_)
         }
-        
-        buffer_m <- buffer_m * 2
+
+        # Clamp to max_buffer_m so the final attempt lands exactly at the
+        # documented cap instead of doubling past it (e.g. 32km -> 64km)
+        buffer_m <- min(buffer_m * 2, max_buffer_m)
       }
     }
     

@@ -1,22 +1,43 @@
+#' Extract an observed static water level (in feet) from free-text WSD fields
+#'
+#' Matches phrasing like "static water level is at 28 ft", "static depth 75
+#' feet", "static water level was measured at 32 ft", or "static water found
+#' at 56 feet" — i.e. "static" followed by "level"/"depth"/"found", then a
+#' short run of connector words, then a number and ft/feet. Deliberately
+#' excludes "static pressure"/"static mixer" mentions, which aren't depth
+#' readings. 
+#' 
+#' Free string regex tested in `explore_groundwater_depth.Rmd` and verified with 
+#' Claude.
+#'
+#' @param txt character vector (e.g. `description` or `source_notes`)
+#' @return numeric vector of extracted depths in feet, NA where no match
+
+extract_static_depth_ft <- function(txt) {
+  m <- str_match(str_to_lower(txt),
+    "static\\s+(?:water\\s+)?(?:level|depth|found)(?:[^.]{0,45}?)([0-9]+(?:\\.[0-9]+)?)\\s*(?:ft\\.?|feet)\\b")[, 2]
+  as.numeric(m)
+}
+
 #' Calculate Groundwater Depth Sensitivity Indicator
 #'
-#' Calculates groundwater depth sensitivity for groundwater-sourced water supplies.
-#' The WSD's recorded `well_depth` is treated as ground-truth and used as the
-#' primary depth-to-water estimate, assuming a 10 ft well screen (i.e. the water
-#' table sits ~10 ft above the bottom of the well: `well_depth_ft - 10`). Where
-#' `well_depth` is missing, this falls back to modeled water table depth (WTD)
-#' from `process_groundwater_depth()` (CONUS-wide RF WTD model). A shallower
-#' water table means higher sensitivity, so `invert = TRUE` is used when
-#' standardizing the raw (continuous) depth.
+#' Calculates depth-to-water sensitivity for all water supplies. For
+#' groundwater/spring `source_type` supplies, depth-to-water is taken from an
+#' observed static water level where one can be extracted from the WSD's
+#' free-text `description`/`source_notes` fields, falling back to modeled
+#' water table depth (WTD) from `process_groundwater_depth()` (CONUS-wide RF
+#' WTD model) where no observed value is available. All other (surface water) 
+#' source types are hardcoded to a depth-to-water of 0. A shallower water table 
+#' means higher sensitivity, so `invert = TRUE` is used when standardizing the 
+#' raw (continuous) depth. Note that WSD column `well_depth` is not used as it does not 
+#' reliably indicate water table position (wells are often drilled well below 
+#' the static water level). 
 #'
 #' The raw depth is also binned into a DRASTIC-style depth-to-water sensitivity
 #' score, using thresholds of 1.5/4.5/9.1/15.2/22.9/30.5 m (5/15/30/50/75/100 ft)
 #' mapped to scores of 1/.9/.7/.5/.3/.2/.1. Unlike the raw depth, the bin score
-#' is not inverted when standardized.
-#'
-#' Only applies to water supplies with a groundwater `source_type`
-#' ("shallow groundwater", "deep groundwater", "unknown groundwater");
-#' all other source types are excluded from the output.
+#' is not inverted when standardized. A depth of 0 (surface water) naturally
+#' falls into the top bin (1) under these thresholds.
 #'
 #' Citation: Zenodo record 18504963,
 #' https://ngwa.onlinelibrary.wiley.com/doi/10.1111/gwat.13362
@@ -27,8 +48,8 @@
 #' (1987): 23-37. https://doi.org/10.17491/jgsi/1987/290112.
 #'
 #' @param water_supplies sf object with water supply locations, including
-#'   `wsd_source_id`, `park_unit`, `park_name`, `source_type`, `well_depth`
-#'   (recorded well depth in feet).
+#'   `wsd_source_id`, `park_unit`, `park_name`, `source_type`, `description`,
+#'   `source_notes`.
 #' @param groundwater_data character path to `wtd_all_sites.csv` (output of
 #'   `process_groundwater_depth()`), or a data.frame with the same columns.
 #' @param save logical, whether to save output
@@ -36,10 +57,10 @@
 #' @param verbose logical, whether to show progress messages
 #'
 #' @return tibble with water supply ID, park info, `raw_groundwater_depth_source`
-#'   ("well_depth" or "modeled_wtd", indicating which source was used), and
-#'   raw/norm/rank columns for `raw_groundwater_depth_m` (continuous depth,
-#'   inverted) and `raw_groundwater_depth_bin` (DRASTIC-style bin score, not
-#'   inverted)
+#'   ("observed_static", "modeled_wtd", or "surface_zero", indicating which
+#'   source was used), and raw/norm/rank columns for `raw_groundwater_depth_m`
+#'   (continuous depth, inverted) and `raw_groundwater_depth_bin` (DRASTIC-style
+#'   bin score, not inverted)
 
 calc_groundwater_depth_sensitivity <- function(water_supplies,
                                                groundwater_data,
@@ -51,7 +72,8 @@ calc_groundwater_depth_sensitivity <- function(water_supplies,
   stopifnot(
     "water_supplies must be an sf object" = inherits(water_supplies, "sf"),
     "water_supplies must include source_type" = "source_type" %in% names(water_supplies),
-    "water_supplies must include well_depth" = "well_depth" %in% names(water_supplies),
+    "water_supplies must include description" = "description" %in% names(water_supplies),
+    "water_supplies must include source_notes" = "source_notes" %in% names(water_supplies),
     "save is TRUE but output_dir not provided" = !save || !is.null(output_dir)
   )
 
@@ -66,33 +88,46 @@ calc_groundwater_depth_sensitivity <- function(water_supplies,
     groundwater_data <- read_csv(groundwater_data, show_col_types = FALSE)
   }
 
-  # Restrict to groundwater-sourced water supplies
-  groundwater_supplies <- water_supplies %>%
+  # Score all water supplies. Groundwater/spring source types get a depth
+  # from the observed-static/modeled-WTD priority chain below; all other
+  # (surface water) source types are hardcoded to a depth of 0.
+  
+  all_supplies <- water_supplies %>%
     sf::st_drop_geometry() %>%
-    dplyr::filter(grepl("groundwater|spring", source_type)) %>%
-    dplyr::mutate(well_depth = as.numeric(well_depth)) %>%
-    dplyr::select(wsd_source_id, park_unit, park_name, well_depth) %>%
+    dplyr::select(wsd_source_id, park_unit, park_name, source_type,
+                  description, source_notes) %>%
     dplyr::distinct(wsd_source_id, .keep_all = TRUE)
 
-  # Join modeled water table depth, then prefer the WSD's recorded well depth
-  # (ground truth) over the modeled WTD, assuming a 10 ft well screen so the
-  # water table sits ~10 ft above the bottom of the well. Depths that would go
-  # negative under that assumption (well shallower than 10 ft) are clipped to 0.
-  results <- groundwater_supplies %>%
+  # Join modeled water table depth, then prefer an observed static water
+  # level (extracted from free-text description/source_notes) over the
+  # modeled WTD.
+  
+  results <- all_supplies %>%
     dplyr::left_join(
       groundwater_data %>% dplyr::select(wsd_source_id, wtd_point_m),
       by = "wsd_source_id"
     ) %>%
     dplyr::mutate(
-      well_depth_m = pmax(0, (well_depth - 10) * 0.3048),
-      raw_groundwater_depth_m = dplyr::coalesce(well_depth_m, wtd_point_m),
+      is_gw_spring = grepl("groundwater|spring", source_type),
+      observed_static_m = dplyr::coalesce(
+        extract_static_depth_ft(description),
+        extract_static_depth_ft(source_notes)
+      ) * 0.3048,
+      raw_groundwater_depth_m = dplyr::case_when(
+        !is_gw_spring              ~ 0,
+        !is.na(observed_static_m)  ~ observed_static_m,
+        !is.na(wtd_point_m)        ~ wtd_point_m,
+        .default = NA_real_
+      ),
       raw_groundwater_depth_source = dplyr::case_when(
-        !is.na(well_depth_m) ~ "well_depth",
-        !is.na(wtd_point_m)  ~ "modeled_wtd",
+        !is_gw_spring              ~ "surface_zero",
+        !is.na(observed_static_m)  ~ "observed_static",
+        !is.na(wtd_point_m)        ~ "modeled_wtd",
         .default = NA_character_
       )
     ) %>%
-    dplyr::select(-well_depth, -well_depth_m, -wtd_point_m)
+    dplyr::select(-source_type, -description, -source_notes, -is_gw_spring,
+                  -observed_static_m, -wtd_point_m)
 
   # Bin the raw depth into a DRASTIC-style sensitivity score, then standardize
   # both the raw depth and the bin score separately
