@@ -103,7 +103,7 @@ process_storm_surge_data <- function(data_dir,
 
   worst_case <- conus_stations %>%
     group_by(station_idx, lon, lat) %>%
-    mutate(model_agreement = 100 * mean(sign(surge_change) == sign(max(surge_change, na.rm = TRUE)), na.rm = TRUE)) %>%
+    mutate(pct_models_increasing = 100 * mean(surge_change > 0, na.rm = TRUE)) %>%
     slice_max(surge_change, n = 1, with_ties = FALSE) %>%
     ungroup() %>%
     mutate(max_surge_pct_change = (surge_change / surge_hist) * 100) %>%
@@ -113,7 +113,7 @@ process_storm_surge_data <- function(data_dir,
   
   # Convert to sf
   stations_sf <- worst_case %>%
-    select(lon, lat, max_surge_change_m, max_surge_pct_change, max_surge_model, model_agreement) %>%
+    select(lon, lat, max_surge_change_m, max_surge_pct_change, max_surge_model, pct_models_increasing) %>%
     st_as_sf(coords = c("lon", "lat"), crs = 4326, remove = FALSE)
   
   if (save) {

@@ -92,7 +92,7 @@ calc_storm_surge_exposure <- function(water_supplies,
       nn_dist_m                 = nn_dist,
       raw_surge_change_max      = stations_proj$max_surge_change_m[nn_idx],
       raw_surge_pct_change_max  = stations_proj$max_surge_pct_change[nn_idx],
-      raw_surge_model_agreement = stations_proj$model_agreement[nn_idx]
+      raw_surge_pct_models_increasing = stations_proj$pct_models_increasing[nn_idx]
     ) %>%
     # Supplies > 50 km from the nearest surge station receive NA
     mutate(
