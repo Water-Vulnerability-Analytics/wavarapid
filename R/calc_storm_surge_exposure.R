@@ -3,57 +3,66 @@
 #' Assigns each NPS water supply the worst-case model 100-year return period
 #' storm surge change (future 2021-2050 minus historical 1985-2014, in meters)
 #' from the nearest coastal station in the Muis et al. (2023) CMIP6 dataset.
-#' Two separate distance checks are applied:
-#' 1. Water supplies whose nearest surge *station* is more than 50 km away
-#'    receive NA — they are too far from any measurement point to be assigned
-#'    a meaningful surge value.
-#' 2. For supplies that pass that threshold, the assigned surge value is divided
-#'    by `coast_dist_m` from `process_coastal_weights()` (distance to the NOAA
-#'    CUSP shoreline) to weight exposure by coastal proximity. These are
-#'    different distances: one screens for data coverage, the other scales the
-#'    exposure value.
+#'
+#' Water supplies whose nearest surge station is more than 50 km away receive
+#' NA because they are too far from a measurement point to receive a meaningful
+#' surge value.
+#'
+#' weighting: Coastal proximity and low elevation are multiplied. A supply must
+#'    therefore be both close to the coast and at low elevation to receive a
+#'    high weight.
 #'
 #' Source: Muis et al. (2023), "Global Projections of Storm Surges Using
 #' High-Resolution CMIP6 Climate Models", Earth's Future.
-#' SSP5-8.5 only — the only scenario available in this dataset. Uses best-fit
-#' (central estimate) only; low- and high-bound confidence intervals exist in
-#' the source data but are not used. See `process_storm_surge_data()` for
-#' full data provenance.
 #'
 #' @param water_supplies sf object with water supply point locations
 #' @param storm_surge_stations character path to the preprocessed CONUS storm
 #'   surge GeoPackage produced by `process_storm_surge_data()`, or an sf
 #'   object already loaded into memory
 #' @param coast_distances character path to coast_distances.csv produced by
-#'   `process_coastal_weights()`. Defaults to the standard rapid inputs path.
+#'   `process_coastal_weights()`
+#' @param site_elevations character path to the intermediary elevation CSV
+#'   produced by `process_elevation_data()`
 #' @param save logical, whether to save output to a CSV file
 #' @param output_dir character, directory path for saving files
 #' @param verbose logical, whether to show progress messages
 #'
-#' @return tibble with `wsd_source_id`, `park_unit`, `park_name`, and
-#'   standardized storm surge exposure columns for both absolute change
-#'   (`raw_surge_change_max`, `norm_surge_change_max`, `rank_surge_change_max`)
-#'   and percent change (`raw_surge_pct_change_max`, `norm_surge_pct_change_max`,
-#'   `rank_surge_pct_change_max`), each weighted by `coast_dist_m`. Water
-#'   supplies >50 km from any surge station have `NA` for all columns.
+#' @return tibble with raw and standardized storm surge exposure indicators
+#'   using RMS and joint distance-elevation weighting
 #'
 calc_storm_surge_exposure <- function(water_supplies,
                                       storm_surge_stations,
-                                      coast_distances = here("data", "rapid", "inputs", "coast_comp", "coast_distances.csv"),
+                                      coast_distances = here("data",
+                                                             "rapid",
+                                                             "inputs",
+                                                             "coast_comp",
+                                                             "coast_distances.csv"),
+                                      site_elevations = here("data",
+                                                             "rapid",
+                                                             "inputs",
+                                                             "water_supply_elevations.csv"),
                                       save = FALSE,
                                       output_dir = NULL,
                                       verbose = TRUE) {
   
   # Input validation
   stopifnot(
-    "water_supplies must be an sf object" = inherits(water_supplies, "sf"),
+    "water_supplies must be an sf object" =
+      inherits(water_supplies, "sf"),
     "storm_surge_stations must be a file path or sf object" =
-      is.character(storm_surge_stations) || inherits(storm_surge_stations, "sf"),
-    "save is TRUE but output_dir not provided" = !save || !is.null(output_dir),
-    "coast distances file does not exist" = file.exists(coast_distances)
+      is.character(storm_surge_stations) ||
+      inherits(storm_surge_stations, "sf"),
+    "save is TRUE but output_dir not provided" =
+      !save || !is.null(output_dir),
+    "coast distances file does not exist" =
+      file.exists(coast_distances),
+    "site elevations file does not exist — run process_elevation_data() first" =
+      file.exists(site_elevations)
   )
   
-  if (verbose) start_time <- Sys.time()
+  if (verbose) {
+    start_time <- Sys.time()
+  }
   
   # Load storm surge stations if a file path was supplied
   if (is.character(storm_surge_stations)) {
@@ -61,93 +70,179 @@ calc_storm_surge_exposure <- function(water_supplies,
       "storm_surge_stations file does not exist — run process_storm_surge_data() first" =
         file.exists(storm_surge_stations)
     )
-    if (verbose) message("Reading storm surge stations from: ", storm_surge_stations)
-    storm_surge_stations <- sf::st_read(storm_surge_stations, quiet = TRUE)
+    
+    if (verbose) {
+      message(
+        "Reading storm surge stations from: ",
+        storm_surge_stations
+      )
+    }
+    
+    storm_surge_stations <- sf::st_read(storm_surge_stations,
+                                        quiet = TRUE)
   }
   
-  # Project both layers to NAD83 / CONUS Albers (meters) for distance calculations
-  if (verbose) message("Projecting to CONUS Albers (EPSG:5070)...")
-  ws_proj <- sf::st_transform(water_supplies, 5070)
-  stations_proj <- sf::st_transform(storm_surge_stations, 5070)
+  # Project both layers to NAD83 / CONUS Albers for distance calculations
+  if (verbose) {
+    message("Projecting to CONUS Albers (EPSG:5070)...")
+  }
   
-  # Nearest-neighbor join: k = 1, return distances
-  if (verbose) message("Computing nearest surge station for ", nrow(ws_proj), " water supplies...")
+  ws_proj <- sf::st_transform(water_supplies,
+                              5070)
   
-  nn_result <- nngeo::st_nn(
-    ws_proj,
-    stations_proj,
-    k = 1,
-    returnDist = TRUE,
-    progress = verbose
-  )
+  stations_proj <- sf::st_transform(storm_surge_stations,
+                                    5070)
   
-  nn_idx  <- unlist(nn_result$nn)
-  nn_dist <- unlist(nn_result$dist) # meters
+  # Find the nearest storm surge station
+  if (verbose) {
+    message("Computing nearest surge station for ",
+            nrow(ws_proj),
+            " water supplies...")
+  }
   
-  # Build results table
+  nn_result <- nngeo::st_nn(ws_proj,
+                            stations_proj,
+                            k = 1,
+                            returnDist = TRUE,
+                            progress = verbose)
+  
+  nn_idx <- unlist(nn_result$nn)
+  nn_dist <- unlist(nn_result$dist)
+  
+  # Assign nearest-station storm surge values
   results <- water_supplies %>%
     sf::st_drop_geometry() %>%
-    select(wsd_source_id, park_unit, park_name) %>%
-    mutate(
-      nn_dist_m                 = nn_dist,
-      raw_surge_change_max      = stations_proj$max_surge_change_m[nn_idx],
-      raw_surge_pct_change_max  = stations_proj$max_surge_pct_change[nn_idx],
-      raw_surge_pct_models_increasing = stations_proj$pct_models_increasing[nn_idx]
-    ) %>%
-    # Supplies > 50 km from the nearest surge station receive NA
-    mutate(
-      raw_surge_change_max     = if_else(nn_dist_m > 50000, NA_real_, raw_surge_change_max),
-      raw_surge_pct_change_max = if_else(nn_dist_m > 50000, NA_real_, raw_surge_pct_change_max)
-    ) %>%
-    select(-nn_dist_m)
+    dplyr::select(wsd_source_id,
+                  park_unit,
+                  park_name) %>%
+    dplyr::mutate(nn_dist_m = nn_dist,
+                  raw_surge_change_max =
+                    stations_proj$max_surge_change_m[nn_idx],
+                  raw_surge_pct_change_max =
+                    stations_proj$max_surge_pct_change[nn_idx],
+                  raw_surge_pct_models_increasing =
+                    stations_proj$pct_models_increasing[nn_idx]) %>%
+    # Supplies >50 km from the nearest surge station receive NA
+    dplyr::mutate(raw_surge_change_max = dplyr::if_else(nn_dist_m > 50000,
+                                                        NA_real_,
+                                                        raw_surge_change_max),
+                  raw_surge_pct_change_max = dplyr::if_else(nn_dist_m > 50000,
+                                                            NA_real_,
+                                                            raw_surge_pct_change_max),
+                  raw_surge_pct_models_increasing = dplyr::if_else(nn_dist_m > 50000,
+                                                                   NA_real_,
+                                                                   raw_surge_pct_models_increasing)) %>%
+    dplyr::select(-nn_dist_m)
   
-  # Divide both metrics by distance to coast to weight exposure by coastal proximity
-  coast_distances_df <- read_csv(coast_distances, show_col_types = FALSE)
+  # Read cached elevation and coastline-distance data
+  if (verbose) {
+    message("Reading cached elevation and coastline-distance data...")
+  }
+  
+  site_elevations_df <- readr::read_csv(site_elevations,
+                                        show_col_types = FALSE)
+  
+  coast_distances_df <- readr::read_csv(coast_distances,
+                                        show_col_types = FALSE)
   
   results <- results %>%
-    left_join(coast_distances_df, by = c("wsd_source_id", "park_unit", "park_name")) %>%
-    # Apply a bounded coastal-proximity weight so surge exposure decreases with
-    # distance from the coast without producing extreme values near zero distance.
-    mutate(coast_weight = pmax(0, 1 - pmin(coast_dist_m, 50000) / 50000),
-           raw_dist_wght_surge_change_max = raw_surge_change_max * coast_weight,
-           raw_dist_wght_surge_pct_change_max = raw_surge_pct_change_max * coast_weight,
-           old_dist_surge_change_max = raw_surge_change_max / coast_dist_m,
-           old_dist_surge_pct_change_max = raw_surge_pct_change_max / coast_dist_m) %>%
-    select(-coast_dist_m, -coast_weight)
+    dplyr::left_join(site_elevations_df,
+                     by = c("wsd_source_id",
+                            "park_unit",
+                            "park_name")) %>%
+    dplyr::left_join(coast_distances_df,
+                     by = c("wsd_source_id",
+                            "park_unit",
+                            "park_name")) %>%
+    mutate(raw_surge_change_max = dplyr::if_else(coast_dist_m > 50000,
+                                                 NA_real_,
+                                                 raw_surge_change_max))
   
-  # Standardize: invert = FALSE — higher surge change = higher exposure
+  # Maximum elevation used to normalize site elevation
+  max_elevation_m <- results %>%
+    dplyr::filter(!is.na(raw_surge_change_max)) %>%
+    dplyr::summarize(max_elevation_m = max(pmax(site_elevation_m, 0), na.rm = TRUE)) %>%
+    dplyr::pull(max_elevation_m)
+  
+  # Protect against all elevations being missing or zero
+  if (!is.finite(max_elevation_m) || max_elevation_m <= 0) {
+    max_elevation_m <- 1
+  }
+  
+  results <- results %>%
+    # Coastal-proximity weight:
+    # 1 at the shoreline and 0 at or beyond 50 km
+    dplyr::mutate(coast_weight = pmax(0, 1 - pmin(coast_dist_m, 50000) / 50000),
+                  
+                  # Low-elevation weight:
+                  # 1 at sea level and 0 at the maximum observed site elevation
+                  elev_weight = 1 - pmin(pmax(site_elevation_m, 0) / max_elevation_m, 1),
+                  
+                  # # RMS / normalized Euclidean approach:
+                  # # one factor can partially compensate for the other
+                  # rms_weight = sqrt(
+                  #   (coast_weight^2 + elev_weight^2) / 2
+                  # ),
+                  # 
+                  # raw_rms_wght_surge_change_max =
+                  #   raw_surge_change_max * rms_weight,
+                  # 
+                  # raw_rms_wght_surge_pct_change_max =
+                  #   raw_surge_pct_change_max * rms_weight,
+                  
+                  # Product approach:
+                  # both proximity and low elevation must be high
+                  joint_weight = coast_weight * elev_weight,
+                  raw_surge_change_max = raw_surge_change_max * joint_weight,
+                  raw_surge_pct_change_max = raw_surge_pct_change_max * joint_weight) %>%
+    dplyr::select(-c(coast_dist_m,
+                     coast_weight,
+                     elev_weight,
+                     joint_weight))
+  
+  # Standardize all indicators to 0-1
   final_results <- results %>%
-    add_standardized_indicators(
-      "raw_dist_wght_surge_change_max",
-      invert = FALSE
-    ) %>%
-    add_standardized_indicators(
-      "raw_dist_wght_surge_pct_change_max",
-      invert = FALSE
-    )
+    add_standardized_indicators("raw_surge_change_max", invert = FALSE) %>%
+    add_standardized_indicators("raw_surge_pct_change_max", invert = FALSE)
   
   # Save results
   if (save) {
-    if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+    if (!dir.exists(output_dir)) {
+      dir.create(
+        output_dir,
+        recursive = TRUE
+      )
+    }
     
     filename <- file.path(
       output_dir,
-      paste0("storm_surge_exposure_", Sys.Date(), ".csv")
+      paste0(
+        "storm_surge_exposure_",
+        Sys.Date(),
+        ".csv"
+      )
     )
     
-    write_csv(final_results, filename)
+    readr::write_csv(
+      final_results,
+      filename
+    )
     
-    if (verbose) message("Results saved to: ", filename)
+    if (verbose) {
+      message("Results saved to: ", filename)
+    }
   }
   
   # Report timing
   if (verbose) {
-    end_time   <- Sys.time()
+    end_time <- Sys.time()
     total_time <- end_time - start_time
     
     message(
       "\nStorm surge exposure processing completed in ",
-      round(total_time, 2), " ", attr(total_time, "units")
+      round(total_time, 2),
+      " ",
+      attr(total_time, "units")
     )
   }
   
