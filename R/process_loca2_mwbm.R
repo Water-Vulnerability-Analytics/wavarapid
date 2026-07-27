@@ -2,7 +2,8 @@
 #'
 #' @param nc_path path to NetCDF files - found in "data/all/loca2_mwbm/"
 #' @param water_supplies sf object with point locations
-#' @param var character, variable name to extract (default "runoff")
+#' @param var character, variable name to extract. Supported values include
+#'   `"runoff"`, `"pr"`, `"swe"`, `"pet"`, `"tasmin_tavg"`, and `"tasmax_tavg"`.
 #' @param historical Character vector of length 2 giving the start and end dates
 #'   (in `"YYYY-MM-DD"` format) that defines the "historical" period.
 #'   Defaults to `c("1980-01-01", "2024-12-31")`.
@@ -13,7 +14,7 @@
 #'
 process_loca2_mwbm <- function(nc_path,
                                water_supplies,
-                               var, # can be "runoff", "pr", "swe", "pet"
+                               var, # can be "runoff", "pr", "swe", "pet", "tasmin_tavg", "tasmax_tavg"
                                historical = c("1980-01-01", "2024-12-31"),
                                future = c("2035-01-01", "2065-12-31"),
                                output_dir){
@@ -119,6 +120,11 @@ process_loca2_mwbm <- function(nc_path,
     period_future     <- which(time_seq >= start_future & time_seq <= end_future)
     
     time_indices_to_keep <- sort(c(period_historical, period_future))
+  }
+  
+  if (length(time_indices_to_keep) == 0) {
+    message("No dates in ", basename(nc_path), " overlap the requested historical/future windows; skipping.")
+    return(invisible(NULL))
   }
   
   # update time_seq and nt to reflect filtered data
