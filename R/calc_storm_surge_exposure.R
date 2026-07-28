@@ -6,7 +6,7 @@
 #'
 #' Water supplies whose nearest surge station is more than 50 km away receive
 #' NA because they are too far from a measurement point to receive a meaningful
-#' surge value. Water supplies who are more than 50 km away from the CUSP coastline 
+#' surge value. Water supplies that are more than 50 km away from the CUSP coastline 
 #' also receive NA.
 #'
 #' weighting: Coastal proximity and low elevation are multiplied. A supply must
