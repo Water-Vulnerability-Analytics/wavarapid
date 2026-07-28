@@ -17,6 +17,10 @@
 #'   `ref_file`, and `proj_file` (NAs acceptable for non-coastal rows).
 #' @param inundation_raster_data_dir character, path to inundation surface raster
 #'   state subdirectories
+#' @param coast_distances character path to coast_distances.csv produced by
+#'   `process_coastal_weights()`. Water supplies farther than 50 km from the
+#'   coast (already `NA`'d in this file) have every indicator column set to
+#'   `NA`, matching the convention in `calc_swi_exposure()`/`calc_storm_surge_exposure()`.
 #' @param save logical, whether to save output
 #' @param output_dir character, directory path for saving files
 #' @param verbose logical, whether to show progress messages
@@ -29,19 +33,22 @@
 #'   an `inun_change` category (`no_to_no`, `no_to_some`, `some_to_some`,
 #'   `some_to_no`), and `inun_centroid_change` (categorical: `no_to_no`,
 #'   `no_to_yes`, `yes_to_yes`, `yes_to_no` — whether the water supply centroid
-#'   point was inundated in the reference and/or projected scenario).
+#'   point was inundated in the reference and/or projected scenario). All
+#'   indicator columns are `NA` for water supplies more than 50 km from the coast.
 
 calc_inundation_exposure <- function(ws_scenarios,
                                      inundation_raster_data_dir = here("data", "rapid", "inputs", "coast_comp", "Extent_Rasters"),
+                                     coast_distances = here("data", "rapid", "inputs", "coast_comp", "coast_distances.csv"),
                                      save = FALSE,
                                      output_dir = NULL,
                                      verbose = TRUE) {
   # Input validation
   required_columns <- c("inun_region", "ref_file", "proj_file")
-   
+
   stopifnot("ws_scenarios must be an sf object" = inherits(ws_scenarios, "sf"),
             "save is TRUE but output_dir not provided" = !save || !is.null(output_dir),
-            "ws_scenarios missing required columns" = all(required_columns %in% names(ws_scenarios)))
+            "ws_scenarios missing required columns" = all(required_columns %in% names(ws_scenarios)),
+            "coast distances file does not exist" = file.exists(coast_distances))
   
   if (verbose) start_time <- Sys.time()
 
@@ -391,8 +398,30 @@ calc_inundation_exposure <- function(ws_scenarios,
            raw_cell_change,       norm_cell_change,       rank_cell_change,
            raw_pct_point_change,  norm_pct_point_change,  rank_pct_point_change,
            inun_change, inun_centroid_change)
-  
-  # Save if requested 
+
+  # Water supplies >50 km from the coast get every indicator column set to NA.
+  # coast_dist_m is already NA'd upstream (process_coastal_weights()) beyond
+  # 50 km, so we only need to check is.na(coast_dist_m) here — no new distance
+  # math. Metadata columns (buffer_km, inun_proj_mm, inun_proj_closest_mm,
+  # depth_ft) are left untouched; only the risk/indicator columns are screened.
+  coast_distances_df <- read_csv(coast_distances, show_col_types = FALSE) %>%
+    select(wsd_source_id, coast_dist_m) %>%
+    distinct()
+
+  indicator_cols <- c(
+    "raw_coverage_pct_ref",  "norm_coverage_pct_ref",  "rank_coverage_pct_ref",
+    "raw_coverage_pct_proj", "norm_coverage_pct_proj", "rank_coverage_pct_proj",
+    "raw_cell_change",       "norm_cell_change",       "rank_cell_change",
+    "raw_pct_point_change",  "norm_pct_point_change",  "rank_pct_point_change",
+    "inun_change", "inun_centroid_change"
+  )
+
+  final_results <- final_results %>%
+    left_join(coast_distances_df, by = "wsd_source_id") %>%
+    mutate(across(all_of(indicator_cols), ~ replace(., is.na(coast_dist_m), NA))) %>%
+    select(-coast_dist_m)
+
+  # Save if requested
   if (save) {
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     filename <- file.path(output_dir, paste0("inundation_exposure_", Sys.Date(), ".csv"))
