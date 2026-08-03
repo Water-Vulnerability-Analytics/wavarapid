@@ -381,10 +381,36 @@ calc_inundation_exposure <- function(ws_scenarios,
     select(wsd_source_id, park_unit) %>%
     distinct()
 
+  # Water supplies >50 km from the coast get every indicator column set to NA.
+  # coast_dist_m is already NA'd upstream (process_coastal_weights()) beyond
+  # 50 km, so we only need to check is.na(coast_dist_m) here — no new distance
+  # math. This screening must happen BEFORE add_standardized_indicators(),
+  # matching the convention in calc_swi_exposure()/calc_storm_surge_exposure():
+  # proj_file/ref_file assignment (inundation-region bbox intersection) is a
+  # different spatial test than the 50 km CUSP shoreline distance, so
+  # coastal_results can contain sites that are >50 km by coast_dist_m. Masking
+  # their raw values to NA first (rather than after standardizing) keeps them
+  # out of the range()/cume_dist() pool that norm_*/rank_* are computed from
+  # for genuinely in-range sites. Metadata columns (buffer_km, inun_proj_mm,
+  # inun_proj_closest_mm, depth_ft) are left untouched; only the risk/indicator
+  # columns are screened.
+  coast_distances_df <- read_csv(coast_distances, show_col_types = FALSE) %>%
+    select(wsd_source_id, coast_dist_m) %>%
+    distinct()
+
+  indicator_cols <- c(
+    "raw_coverage_pct_ref", "raw_coverage_pct_proj",
+    "raw_cell_change", "raw_pct_point_change",
+    "inun_change", "inun_centroid_change"
+  )
+
   # Expand to all water supplies; non-coastal rows get NA for all indicator columns.
   # group_by(buffer_km): non-coastal rows have buffer_km = NA → their own group;
   final_results <- all_ws_base %>%
     left_join(coastal_results, by = "wsd_source_id") %>%
+    left_join(coast_distances_df, by = "wsd_source_id") %>%
+    mutate(across(all_of(indicator_cols), ~ replace(., is.na(coast_dist_m), NA))) %>%
+    select(-coast_dist_m) %>%
     group_by(buffer_km) %>%
     add_standardized_indicators("raw_coverage_pct_ref") %>%
     add_standardized_indicators("raw_coverage_pct_proj") %>%
@@ -398,28 +424,6 @@ calc_inundation_exposure <- function(ws_scenarios,
            raw_cell_change,       norm_cell_change,       rank_cell_change,
            raw_pct_point_change,  norm_pct_point_change,  rank_pct_point_change,
            inun_change, inun_centroid_change)
-
-  # Water supplies >50 km from the coast get every indicator column set to NA.
-  # coast_dist_m is already NA'd upstream (process_coastal_weights()) beyond
-  # 50 km, so we only need to check is.na(coast_dist_m) here — no new distance
-  # math. Metadata columns (buffer_km, inun_proj_mm, inun_proj_closest_mm,
-  # depth_ft) are left untouched; only the risk/indicator columns are screened.
-  coast_distances_df <- read_csv(coast_distances, show_col_types = FALSE) %>%
-    select(wsd_source_id, coast_dist_m) %>%
-    distinct()
-
-  indicator_cols <- c(
-    "raw_coverage_pct_ref",  "norm_coverage_pct_ref",  "rank_coverage_pct_ref",
-    "raw_coverage_pct_proj", "norm_coverage_pct_proj", "rank_coverage_pct_proj",
-    "raw_cell_change",       "norm_cell_change",       "rank_cell_change",
-    "raw_pct_point_change",  "norm_pct_point_change",  "rank_pct_point_change",
-    "inun_change", "inun_centroid_change"
-  )
-
-  final_results <- final_results %>%
-    left_join(coast_distances_df, by = "wsd_source_id") %>%
-    mutate(across(all_of(indicator_cols), ~ replace(., is.na(coast_dist_m), NA))) %>%
-    select(-coast_dist_m)
 
   # Save if requested
   if (save) {
