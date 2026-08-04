@@ -1,6 +1,6 @@
 #' Process coastal inundation inputs for water-supply risk analysis
 #'
-#' Buffers water supply point locations (1 km and 4 km), extracts Interagency Task
+#' Buffers water supply point locations (4 km), extracts Interagency Task
 #' Force (ITF) sea-level-rise projections for 2050 (83rd percentile), programmatically builds a master
 #' NOAA Sea Level Rise Viewer (SLRV) inundation-extent URL table by fetching per-state URL lists,
 #' determines the relevant NOAA inundation region per water supply using a two-step process:
@@ -35,33 +35,25 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   stopifnot("save is TRUE but output_dir not provided" = !save || !is.null(output_dir))
   
-  # Generate the buffered water supply dataset 
-  
-  # For this dataset we will buffer the water supply points by 1 and 4 km. We will
+  # Generate the buffered water supply dataset
+
+  # For this dataset we will buffer the water supply points by 4 km. We will
   # use this dataset to do our inundation risk analysis.
-  
+
   transformed_ws <- water_supplies %>%
     st_transform(5070) %>% # NAD83 / Conus Albers (meters)
     rowid_to_column(var = "ID")
-  
-  buffer_1km_ws <- transformed_ws %>%
-    st_buffer(1000) %>%
-    st_transform(4326) %>%
-    mutate(buffer_km = 1)
-  
-  buffer_4km_ws <- transformed_ws %>%
+
+  all_buffer_ws <- transformed_ws %>%
     st_buffer(4000) %>%
     st_transform(4326) %>%
     mutate(buffer_km = 4)
-  
-  all_buffer_ws <- bind_rows(buffer_1km_ws, buffer_4km_ws)
-  
+
   # Save the buffered water supplies
   sf::st_write(all_buffer_ws,
                here(coast_dir_path, "altered_water_supplies", "buff_ws.gpkg"), # Buffered water supplies
                append = FALSE)
-  
-  rm(buffer_1km_ws, buffer_4km_ws)
+
   gc()
   
   # Load and Process the Interagency Task Force (ITF) Sea Level Rise (SLR) Projections 
