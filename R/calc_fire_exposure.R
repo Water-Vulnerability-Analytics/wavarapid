@@ -50,7 +50,7 @@ calc_fire_exposure <- function(water_supplies,
       names_sep = "_"
     )
   
-  # calculate fraction of models showing decrease
+  # calculate fraction of models showing increase
   model_fractions <- fire_prob_data %>%
     group_by(PYROME) %>%
     summarize(
