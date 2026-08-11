@@ -37,20 +37,12 @@ calc_fire_exposure <- function(water_supplies,
   # Pull 10th, 50th and 90th percentile values for each pyrome
   pyromes_selected <- fire_prob_data %>%
     group_by(PYROME) %>%
-    slice(c(which.min(abs(
-      delta_fp - quantile(delta_fp, 0.1)
-    )), which.min(abs(
-      delta_fp - quantile(delta_fp, 0.5)
-    )), which.min(abs(
-      delta_fp - quantile(delta_fp, 0.9)
-    )))) %>%
-    mutate(
-      percentile = case_when(
-        delta_fp == delta_fp[which.min(abs(delta_fp - quantile(delta_fp, 0.1)))] ~ "p10",
-        delta_fp == delta_fp[which.min(abs(delta_fp - quantile(delta_fp, 0.5)))] ~ "p50",
-        delta_fp == delta_fp[which.min(abs(delta_fp - quantile(delta_fp, 0.9)))] ~ "p90"
-      )
-    ) %>%
+  slice(c(
+    which.min(abs(delta_fp - quantile(delta_fp, 0.1))),
+    which.min(abs(delta_fp - quantile(delta_fp, 0.5))),
+    which.min(abs(delta_fp - quantile(delta_fp, 0.9)))
+  )) %>%
+  mutate(percentile = c("p10", "p50", "p90")) %>%
     ungroup() %>%
     pivot_wider(
       names_from = percentile,
