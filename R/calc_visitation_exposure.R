@@ -32,11 +32,20 @@
 #' @return
 #' A tibble combining the original `water_supplies` data with visitation exposure indicators.
 calc_visitation_exposure <- function(water_supplies,
+                                     start_year = 1990,
                                      baseline_growth_rate = 0.0087,
                                      baseline_seasonality_shift = 1,
                                      save = FALSE,
                                      output_dir = NULL,
                                      verbose = TRUE) {
+
+  # WSD codes that differ from the codes used by visitation statistics.
+  visitation_code_crosswalk <- c(
+    "ANAC" = "NCPE",
+    "NACE" = "NCPE",
+    "NAMA" = "NCPC",
+    "VALR" = "PERL"
+  )
   
   # timed entry start years
   timed_entry_parks <- tribble(~park_unit, ~timed_entry_year,
@@ -52,8 +61,15 @@ calc_visitation_exposure <- function(water_supplies,
   parks <- unique(water_supplies$park_unit)
   
   visitation_indicators <- function(park_unit){
-    
-    visitation <- getUnitVisitation(units = park_unit, startYear = 2010, endYear = 2024)
+
+    # Translate only the API lookup code; retain the WSD code in the output.
+    park_unit_clean <- toupper(trimws(as.character(park_unit)))
+    visitation_code <- unname(visitation_code_crosswalk[park_unit_clean])
+    if (is.na(visitation_code)) visitation_code <- park_unit_clean
+
+    visitation <- getUnitVisitation(units = visitation_code,
+                                    startYear = start_year,
+                                    endYear = 2024)
     
     # check if park has timed entry
     timed_entry_info <- timed_entry_parks %>% filter(.data$park_unit == !!park_unit)
@@ -78,7 +94,7 @@ calc_visitation_exposure <- function(water_supplies,
                                               "Fall_Sep","Fall_Oct","Fall_Nov",
                                               "Winter_Dec")))
     
-    # fit model on full data (2010-2024)
+    # fit model on full data (start_year-2024)
     lm_total <- lm(total ~ Year, data = annual_visitation)
     original_slope <- coef(lm_total)[2]
     intercept <- coef(lm_total)[1]
@@ -93,7 +109,7 @@ calc_visitation_exposure <- function(water_supplies,
     
     # check if baseline growth adjustment is needed
     negative_trend <- original_slope < 0
-    insufficient_data <- nrow(visitation) < (14 * 12)
+    insufficient_data <- nrow(visitation) < (((2024-start_year) - 1) * 12)
     below_baseline <- original_slope < baseline_slope
     use_baseline <- negative_trend || has_timed_entry || insufficient_data || below_baseline
     
@@ -159,8 +175,8 @@ calc_visitation_exposure <- function(water_supplies,
       pred_2050 = pred_2050,
       obs_2024 = pred_2024,
       peak_year = peak_year,
-      visit_raw_pct_change = pct_change,
-      visit_raw_cv_change = cv_change,
+      raw_visitation_pct_change = pct_change,
+      raw_visitation_cv_change = cv_change,
       n_months_analyzed = nrow(visitation),
       time_range = paste(min(visitation$Year), max(visitation$Year), sep = "-"),
       timed_entry_year = timed_entry_year,
@@ -179,7 +195,7 @@ calc_visitation_exposure <- function(water_supplies,
     bind_rows()
   
   norm_indicators <- indicators %>%
-    add_standardized_indicators(., prefix = "visit") %>%
+    add_standardized_indicators(., prefix = "raw_visitation") %>%
     left_join(water_supplies, ., by = "park_unit")
   
   if(verbose) {
