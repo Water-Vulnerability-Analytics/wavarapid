@@ -130,12 +130,20 @@ calc_precip_exposure <- function(water_supplies,
       (year >= hist_start_year & year <= hist_end_year) |
         (year >= future_start_year & year <= future_end_year)
     ][
-      # annual totals per grid cell/model
-      , .(grid_precipitation = sum(value, na.rm = TRUE)),
-      by = .(wsd_source_id, year, park_unit, nc_file, cell_lon, cell_lat)
+      # Average whichever neighborhood cells are available at each time step.
+      , .(site_precipitation = if (any(is.finite(value))) {
+        mean(value[is.finite(value)])
+      } else {
+        NA_real_
+      }),
+      by = .(wsd_source_id, date, year, park_unit, nc_file)
     ][
-      # average annual totals per water source/model
-      , .(total_precipitation = mean(grid_precipitation, na.rm = TRUE)),
+      # Sum the resulting site series; an entirely missing year remains NA.
+      , .(total_precipitation = if (any(is.finite(site_precipitation))) {
+        sum(site_precipitation[is.finite(site_precipitation)])
+      } else {
+        NA_real_
+      }),
       by = .(year, wsd_source_id, park_unit, nc_file)
     ]
     

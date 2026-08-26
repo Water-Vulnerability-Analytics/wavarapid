@@ -91,11 +91,19 @@ calc_swe_exposure <- function(water_supplies,
         (year >= future_start_year & year <= future_end_year)
     ][
       # mean SWE across grid cells per month
-      , .(mean_swe = mean(value, na.rm = TRUE)),
+      , .(mean_swe = if (any(is.finite(value))) {
+        mean(value[is.finite(value)])
+      } else {
+        NA_real_
+      }),
       by = .(wsd_source_id, date, year, park_unit, nc_file)
     ][
       # average annual max per water source/model
-      , .(max_swe = max(mean_swe, na.rm = TRUE)),
+      , .(max_swe = if (any(is.finite(mean_swe))) {
+        max(mean_swe[is.finite(mean_swe)])
+      } else {
+        NA_real_
+      }),
       by = .(year, wsd_source_id, park_unit, nc_file)
     ]
    
@@ -237,9 +245,7 @@ calc_swe_exposure <- function(water_supplies,
       
     }
     
-    swe_change <- bind_rows(swe_change_sub) %>%
-     mutate(swe_change = ifelse(is.na(swe_change), 0, swe_change),
-            percent_change = ifelse(is.na(percent_change), 0, percent_change))
+    swe_change <- bind_rows(swe_change_sub)
     
   }
   

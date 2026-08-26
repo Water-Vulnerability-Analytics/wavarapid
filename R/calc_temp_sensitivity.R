@@ -87,10 +87,18 @@ calc_temp_sensitivity <- function(water_supplies,
     ][
       year >= hist_start_year & year <= hist_end_year
     ][
-      , .(grid_temperature = mean(value, na.rm = TRUE)),
-      by = .(wsd_source_id, year, park_unit, cell_lon, cell_lat)
+      , .(site_temperature = if (any(is.finite(value))) {
+        mean(value[is.finite(value)])
+      } else {
+        NA_real_
+      }),
+      by = .(wsd_source_id, date, year, park_unit)
     ][
-      , .(mean_temperature = mean(grid_temperature, na.rm = TRUE)),
+      , .(mean_temperature = if (any(is.finite(site_temperature))) {
+        mean(site_temperature[is.finite(site_temperature)])
+      } else {
+        NA_real_
+      }),
       by = .(wsd_source_id, park_unit, year)
     ]
   }

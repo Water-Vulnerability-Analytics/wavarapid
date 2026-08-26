@@ -70,10 +70,18 @@ calc_runoff_sensitivity <- function(water_supplies,
     ][
       year >= hist_start_year & year <= hist_end_year
     ][
-      , .(grid_runoff = sum(value, na.rm = TRUE)),
-      by = .(wsd_source_id, year, park_unit, cell_lon, cell_lat)
+      , .(site_runoff = if (any(is.finite(value))) {
+        mean(value[is.finite(value)])
+      } else {
+        NA_real_
+      }),
+      by = .(wsd_source_id, date, year, park_unit)
     ][
-      , .(total_runoff = mean(grid_runoff, na.rm = TRUE)),
+      , .(total_runoff = if (any(is.finite(site_runoff))) {
+        sum(site_runoff[is.finite(site_runoff)])
+      } else {
+        NA_real_
+      }),
       by = .(wsd_source_id, park_unit, year)
     ]
   }
