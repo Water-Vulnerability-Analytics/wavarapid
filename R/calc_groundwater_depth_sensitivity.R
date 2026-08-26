@@ -86,7 +86,7 @@ calc_groundwater_depth_sensitivity <- function(water_supplies,
     ) %>%
     dplyr::mutate(
       is_gw_spring = grepl("groundwater|spring", source_type),
-      well_depth_m = well_depth * 0.8 * 0.3048,
+      well_depth_m = if_else((well_depth * 0.8 * 0.3048) >= 200, 200, (well_depth * 0.8 * 0.3048)),
       raw_groundwater_depth_m = dplyr::case_when(
         !is_gw_spring              ~ 0,
         !is.na(well_depth_m)       ~ well_depth_m,
