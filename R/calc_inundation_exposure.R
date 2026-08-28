@@ -17,8 +17,9 @@
 #'   `ref_file`, and `proj_file` (NAs acceptable for non-coastal rows).
 #' @param inundation_raster_data_dir character, path to inundation surface raster
 #'   state subdirectories
-#' @param coast_distances character path to coast_distances.csv produced by
-#'   `process_coastal_weights()`. Water supplies farther than 50 km from the
+#' @param coast_distances character path to coastal_site_geometry.csv
+#'   produced by `process_coastal_geometry()` (only `coast_dist_m` is used
+#'   here). Water supplies farther than 50 km from the
 #'   coast (already `NA`'d in this file) have every indicator column set to
 #'   `NA`, matching the convention in `calc_swi_exposure()`/`calc_storm_surge_exposure()`.
 #' @param save logical, whether to save output
@@ -38,7 +39,7 @@
 
 calc_inundation_exposure <- function(ws_scenarios,
                                      inundation_raster_data_dir = here("data", "rapid", "inputs", "coast_comp", "Extent_Rasters"),
-                                     coast_distances = here("data", "rapid", "inputs", "coast_comp", "coast_distances.csv"),
+                                     coast_distances = here("data", "rapid", "inputs", "coast_comp", "coastal_site_geometry.csv"),
                                      save = FALSE,
                                      output_dir = NULL,
                                      verbose = TRUE) {
@@ -382,7 +383,7 @@ calc_inundation_exposure <- function(ws_scenarios,
     distinct()
 
   # Water supplies >50 km from the coast get every indicator column set to NA.
-  # coast_dist_m is already NA'd upstream (process_coastal_weights()) beyond
+  # coast_dist_m is already NA'd upstream (process_coastal_geometry()) beyond
   # 50 km, so we only need to check is.na(coast_dist_m) here — no new distance
   # math. This screening must happen BEFORE add_standardized_indicators(),
   # matching the convention in calc_swi_exposure()/calc_storm_surge_exposure():
