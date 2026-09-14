@@ -5,7 +5,7 @@
 #' estimation points. Water supplies farther than 50 km from any SWI point
 #' are assigned NA (not at coastal SWI risk). Those points that are assigned
 #' SWI values are then weighted based on their distance to the coast, using the
-#' same dataset which was produced in `process_coastal_weights()`. The raw
+#' same dataset which was produced in `process_coastal_geometry()`. The raw
 #' migration value is divided by `coast_dist_m` to produce a dimensionless ratio:
 #' what fraction of the land-to-coast corridor is projected to be intruded.
 #'
@@ -18,8 +18,9 @@
 #'   contain columns `wsd_source_id`, `park_unit`, and `park_name`.
 #' @param swi_pts Saltwater intrusion points. Character path to swi_points.gpkg produced by
 #'   `process_swi_data()`. Defaults to `here("data", "rapid", "inputs", "swi", "swi_points.gpkg")`.
-#' @param coast_distances character path to coast_distances.csv produced by
-#'   `process_coastal_weights()`.
+#' @param coast_distances character path to coastal_site_geometry.csv
+#'   produced by `process_coastal_geometry()` (only `coast_dist_m` is used
+#'   here; `coast_elev_m` is dropped after the join).
 #' @param save logical, whether to save output CSV. Defaults to FALSE.
 #' @param output_dir character, directory path for saving files. Required when
 #'   `save = TRUE`.
@@ -33,7 +34,7 @@
 calc_swi_exposure <- function(
     water_supplies,
     swi_pts    = here("data", "rapid", "inputs", "swi", "swi_points.gpkg"),
-    coast_distances = here("data", "rapid", "inputs", "coast_comp", "coast_distances.csv"),
+    coast_distances = here("data", "rapid", "inputs", "coast_comp", "coastal_site_geometry.csv"),
     save       = FALSE,
     output_dir = NULL,
     verbose    = TRUE) {
@@ -82,7 +83,8 @@ calc_swi_exposure <- function(
 
   # Divide by distance to coast: raw_swi_migration / coast_dist_m gives the
   # fraction of the land-to-coast corridor projected to be intruded (dimensionless)
-  coast_distances_df <- read_csv(coast_distances, show_col_types = FALSE)
+  coast_distances_df <- read_csv(coast_distances, show_col_types = FALSE) %>%
+    select(wsd_source_id, park_unit, park_name, coast_dist_m)
 
   swi_weighted <- swi_assigned %>%
     left_join(coast_distances_df, by = c("wsd_source_id", "park_unit", "park_name")) %>%
