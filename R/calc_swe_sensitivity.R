@@ -71,11 +71,19 @@ calc_swe_sensitivity <- function(water_supplies,
       year >= hist_start_year & year <= hist_end_year
     ][
       # mean SWE across grid cells per month
-      , .(mean_swe = mean(value, na.rm = TRUE)),
+      , .(mean_swe = if (any(is.finite(value))) {
+        mean(value[is.finite(value)])
+      } else {
+        NA_real_
+      }),
       by = .(wsd_source_id, date, year, park_unit, nc_file)
     ][
       # average annual max per water source/model
-      , .(max_swe = max(mean_swe, na.rm = TRUE)),
+      , .(max_swe = if (any(is.finite(mean_swe))) {
+        max(mean_swe[is.finite(mean_swe)])
+      } else {
+        NA_real_
+      }),
       by = .(year, wsd_source_id, park_unit, nc_file)
     ]
     
@@ -115,9 +123,9 @@ calc_swe_sensitivity <- function(water_supplies,
     mutate(trend_direction = case_when(is.na(raw_slope_swe) ~ "no trend",
                                        raw_slope_swe > 0 ~ "increasing",
                                        raw_slope_swe < 0 ~ "decreasing",
-                                       TRUE ~ "no change"),
+           TRUE ~ "no change"),
            raw_percent_slope_swe = ifelse(is.na(raw_slope_swe) | is.na(raw_avg_swe) | raw_avg_swe == 0,
-                                          0,
+                                          NA_real_,
                                           (raw_slope_swe / raw_avg_swe) * 100)) %>%
     # add standardized indicators using helper function
     add_standardized_indicators("raw_slope_swe", invert = TRUE) %>%
@@ -148,7 +156,5 @@ calc_swe_sensitivity <- function(water_supplies,
   
   return(final_results)
 }
-
-
 
 

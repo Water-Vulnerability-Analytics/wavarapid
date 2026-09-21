@@ -70,10 +70,18 @@ calc_precip_sensitivity <- function(water_supplies,
     ][
       year >= hist_start_year & year <= hist_end_year
     ][
-      , .(grid_precip = sum(value, na.rm = TRUE)),
-      by = .(wsd_source_id, year, park_unit, cell_lon, cell_lat)
+      , .(site_precip = if (any(is.finite(value))) {
+        mean(value[is.finite(value)])
+      } else {
+        NA_real_
+      }),
+      by = .(wsd_source_id, date, year, park_unit)
     ][
-      , .(total_precip = mean(grid_precip, na.rm = TRUE)),
+      , .(total_precip = if (any(is.finite(site_precip))) {
+        sum(site_precip[is.finite(site_precip)])
+      } else {
+        NA_real_
+      }),
       by = .(wsd_source_id, park_unit, year)
     ]
   }

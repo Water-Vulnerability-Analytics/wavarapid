@@ -147,12 +147,20 @@ calc_temp_exposure <- function(water_supplies,
       (year >= hist_start_year & year <= hist_end_year) |
         (year >= future_start_year & year <= future_end_year)
     ][
-      # annual mean temperature per grid cell/model
-      , .(grid_temperature = mean(value, na.rm = TRUE)),
-      by = .(wsd_source_id, year, park_unit, nc_file, cell_lon, cell_lat)
+      # Average the available neighborhood cells independently at each time step.
+      , .(site_temperature = if (any(is.finite(value))) {
+        mean(value[is.finite(value)])
+      } else {
+        NA_real_
+      }),
+      by = .(wsd_source_id, date, year, park_unit, nc_file)
     ][
-      # average annual mean temperature per water source/model
-      , .(mean_temperature = mean(grid_temperature, na.rm = TRUE)),
+      # Then give each available time step equal weight in the annual mean.
+      , .(mean_temperature = if (any(is.finite(site_temperature))) {
+        mean(site_temperature[is.finite(site_temperature)])
+      } else {
+        NA_real_
+      }),
       by = .(year, wsd_source_id, park_unit, nc_file)
     ]
     

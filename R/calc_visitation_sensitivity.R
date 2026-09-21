@@ -36,6 +36,14 @@ calc_visitation_sensitivity <- function(water_supplies,
   )
   
   start_time <- Sys.time()
+
+  # WSD codes that differ from the codes used by visitation statistics.
+  visitation_code_crosswalk <- c(
+    "ANAC" = "NCPE",
+    "NACE" = "NCPE",
+    "NAMA" = "NCPC",
+    "VALR" = "PERL"
+  )
   
   parks <- water_supplies %>%
     dplyr::distinct(park_unit) %>%
@@ -47,8 +55,13 @@ calc_visitation_sensitivity <- function(water_supplies,
   }
   
   visitation_indicators <- function(park_unit) {
-    
-    visitation <- getUnitVisitation(units = park_unit,
+
+    # Translate only the API lookup code; retain the WSD code in the output.
+    park_unit_clean <- toupper(trimws(as.character(park_unit)))
+    visitation_code <- unname(visitation_code_crosswalk[park_unit_clean])
+    if (is.na(visitation_code)) visitation_code <- park_unit_clean
+
+    visitation <- getUnitVisitation(units = visitation_code,
                                     startYear = start_year,
                                     endYear = end_year)
     

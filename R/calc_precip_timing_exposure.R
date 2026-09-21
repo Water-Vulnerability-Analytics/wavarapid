@@ -142,10 +142,20 @@ calc_precip_timing_exposure <- function(water_supplies,
       (year >= hist_start_year & year <= hist_end_year) |
         (year >= future_start_year & year <= future_end_year)
     ][
-      , .(grid_precip = if (all(is.na(value))) NA_real_ else sum(value, na.rm = TRUE)),
-      by = .(wsd_source_id, year, month, park_unit, nc_file, cell_lon, cell_lat)
+      # First average all available neighborhood cells for each time step.
+      , .(site_precip = if (any(is.finite(value))) {
+        mean(value[is.finite(value)])
+      } else {
+        NA_real_
+      }),
+      by = .(wsd_source_id, date, year, month, park_unit, nc_file)
     ][
-      , .(monthly_precip = mean(grid_precip, na.rm = TRUE)),
+      # Then aggregate the available site values within the month.
+      , .(monthly_precip = if (any(is.finite(site_precip))) {
+        sum(site_precip[is.finite(site_precip)])
+      } else {
+        NA_real_
+      }),
       by = .(year, month, wsd_source_id, park_unit, nc_file)
     ]
     
