@@ -1,4 +1,4 @@
-#' Calculate nearby-use exposure from the new county demand projections
+#' Calculate nearby-use exposure from county demand projections
 #'
 #' Compares 2040-2070 with 2000-2020 county withdrawals from the Blumberg and
 #' Warziniack monthly climatologies. Withdrawals combine public supply, crop
