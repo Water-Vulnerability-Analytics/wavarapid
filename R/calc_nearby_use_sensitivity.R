@@ -1,149 +1,301 @@
-#' Calculate Nearby Water Withdrawals/Use Sensitivity Indicator
+#' Calculate historical nearby-use pressure from county monthly climatologies
 #'
-#' Calculates a county-level nearby water use sensitivity indicator for water supplies
-#' based on historical total water withdrawals from USGS data. Water supplies are
-#' assigned to the nearest county, historical withdrawals are aggregated across
-#' major use sectors, and county-level withdrawal trends are estimated using
-#' Sen's slope and Mann-Kendall trend tests. Outputs include raw average
-#' withdrawals, raw trend estimates, trend direction, and standardized indicators.
+#' Measures 2000-2020 withdrawal intensity using public supply, crop irrigation,
+#' and thermoelectric cooling data supplied by Blumberg and Warziniack. The main
+#' sensitivity measure is raw_avg_nearby_use_per_km2 (MGD/km2). Higher values
+#' represent greater nearby demand pressure.
 #'
-#' @param water_supplies sf object with water supply locations.
-#' @param observed_use data frame of historical county-level water withdrawals.
-#'   Defaults to `fread("data/all/RPAWaterDemand/1_BaseData/Trash 2022/usgswithdrawals.csv")`.
-#'   Must contain columns for year, county/state identifiers, FIPS, and sectoral
-#'   withdrawal variables used in the function.
-#' @param save logical, whether to save output. Default is `FALSE`.
-#' @param output_dir character, directory path for saving files. Required if
-#'   `save = TRUE`.
-#' @param verbose logical, whether to print progress and timing messages. Default is `TRUE`.
-
+#' These files contain climatological months, NOT a year-by-year time series.
+#' Historical Sen slopes, Mann-Kendall tests, and annual percentage trends cannot
+#' be estimated. This function deliberately returns no historical trend columns.
+#' Replace downstream uses of raw_slope_nearby_use_per_km2 with the chosen
+#' intensity column explicitly; see README_nearby_use.md for migration notes.
+#'
+#' Public supply MGD = pub_per_cap * population / 1000, because population is
+#' thousands of persons. Plant withdrawals are summed within county/month before
+#' combining sectors. Selected monthly daily rates are day-weighted, using 28.25
+#' days for February. All selected months are required; missing data are not zero.
+#' Counties with no listed historical plants contribute zero thermoelectric use.
+#'
+#' County boundaries always use tigris::counties(cb = FALSE, year = 2020).
+#' Areas include county land and water territory. Each supply uses the county
+#' containing it, or the nearest county within max_county_distance_km.
+#'
+#' norm_ (0-1 min-max) and rank_ (0-100 cumulative percentile) columns are
+#' calculated across water supplies, so a county with several supplies is
+#' counted once per supply.
+#'
+#' Source this file directly, or use setup.R. County-wide withdrawals are a
+#' proxy for nearby competition, not a direct measurement of an individual
+#' supply's water scarcity.
+#'
+#' @param water_supplies sf POINT locations with unique wsd_source_id, park_unit,
+#'   and optionally park_name. Empty points are retained with NA indicators.
+#' @param data_dir Directory containing water_demand_projections, or that folder
+#'   itself. Requires pub_irr and tep monthly_avg_2000_2020.csv files.
+#' @param save Whether to save nearby_use_sensitivity_YYYY-MM-DD.csv.
+#' @param output_dir Required when save is TRUE.
+#' @param verbose Whether to report the saved filename.
+#' @param months Unique calendar months to average (default all 12).
+#' @param max_county_distance_km Maximum distance to the nearest county for
+#'   points outside every county polygon (default 5 km). Inf allows any distance.
+#' @return Nonspatial tibble, one row per supply: wsd_source_id, park_unit,
+#'   park_name (if supplied), fips (five-character text), county_area_km2,
+#'   county_distance_km, county_source, raw_avg_nearby_use (MGD),
+#'   raw_avg_nearby_use_per_km2 (MGD/km2), and their norm_/rank_ columns.
+#'   Supplies in counties with incomplete data have NA values.
 calc_nearby_use_sensitivity <- function(water_supplies,
-                                        observed_use = fread("data/all/RPAWaterDemand/1_BaseData/Trash 2022/usgswithdrawals.csv"), #precompiled data from USFS
-                                        save = FALSE,
-                                        output_dir = NULL,
-                                        verbose = TRUE) {
-  
-  # Input validation
-  stopifnot(
-    "water_supplies must be an sf object" = inherits(water_supplies, "sf"),
-    "save is TRUE but output_dir not provided" = !save || !is.null(output_dir)
-  )
-  
-  start_time <- Sys.time()
-  
-  suppressMessages({suppressWarnings({
-    
-    counties <- counties(cb = TRUE, year = 2019)
-    
-    counties <- st_transform(counties, st_crs(water_supplies)) %>%
-      mutate(fips = as.numeric(paste0(STATEFP, COUNTYFP)),
-             county_area_km2 = as.numeric(st_area(st_transform(geometry, 5070))) / 1000000)
-    
-    points_with_counties <- st_join(water_supplies, counties, join = st_nearest_feature) %>%
-      mutate(fips = as.numeric(paste0(STATEFP, COUNTYFP))) %>%
-      select(park_unit, wsd_source_id, fips, county_area_km2)
-    
-    # aq = aquaculture; dp = domestic; ic = industrial + mining; ir = irrigated agriculture; ls = livestock; th = thermoelectric
-    #1985-2015 observed data:
-    use_historic <- observed_use %>%
-      select(year, state_name, county_nm, fips = FIPS, PStot,
-             aq = AquaSelfTot,
-             dp = DomTot,
-             ic = IndTot,
-             ir = IrrigSelfTot,
-             ls = StockSelfTot,
-             th = ThermSelfTot,
-             min = MinSelfTot) %>%
-      mutate(across(c(aq, dp, ic, ir, ls, th, min), ~as.numeric(na_if(as.character(.x), "-"))),
-             ic = ic + min,
-             fips = as.numeric(fips)) %>%
-      select(-min) %>%
-      # subset to only counties with water supplies
-      filter(fips %in% unique(points_with_counties$fips)) %>%
-      pivot_longer(c(aq, dp, ic, ir, ls, th), names_to = "sector", values_to = "withdrawal") %>%
-      group_by(state_name, county_nm, fips, year) %>%
-      summarize(total_withdrawal = sum(withdrawal, na.rm = TRUE), .groups = "drop") %>%
-      left_join(points_with_counties %>% st_drop_geometry() %>% distinct(fips, county_area_km2),
-                by = "fips") %>%
-      mutate(total_withdrawal_per_km2 = total_withdrawal / county_area_km2)
-    
-    county_trends <- use_historic %>%
-      group_by(state_name, county_nm, fips) %>%
-      arrange(year, .by_group = TRUE) %>%
-      summarize(raw_avg_nearby_use = mean(total_withdrawal, na.rm = TRUE),
-                raw_avg_nearby_use_per_km2 = mean(total_withdrawal_per_km2, na.rm = TRUE),
-                data = list(dplyr::pick(dplyr::everything())),
-                .groups = "drop") %>%
-      mutate(n_years = map_int(data, ~ sum(!is.na(.x$total_withdrawal))),
-             sen = map(data, ~ {
-               x <- .x$total_withdrawal
-               if (sum(!is.na(x)) >= 3) sens.slope(x) else NULL
-             }),
-             sen_per_km2 = map(data, ~ {
-               x <- .x$total_withdrawal_per_km2
-               if (sum(!is.na(x)) >= 3) sens.slope(x) else NULL
-             }),
-             mk = map(data, ~ {
-               x <- .x$total_withdrawal
-               if (sum(!is.na(x)) >= 3) mk.test(x) else NULL
-             }),
-             raw_slope_nearby_use = map_dbl(sen, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
-             raw_slope_nearby_use_per_km2 = map_dbl(sen_per_km2, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
-             mk_tau = map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
-             mk_p_value = map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$p.value),
-             mk_significant = mk_p_value < 0.05) %>%
-      select(-data, -sen, -sen_per_km2, -mk, -mk_p_value, -mk_tau) %>%
-      mutate(trend_direction = case_when(is.na(raw_slope_nearby_use) ~ NA_character_,
-                                         raw_slope_nearby_use > 0 ~ "increasing",
-                                         raw_slope_nearby_use < 0 ~ "decreasing",
-                                         TRUE ~ "no change"),
-             trend_direction_per_km2 = case_when(is.na(raw_slope_nearby_use_per_km2) ~ NA_character_,
-                                                 raw_slope_nearby_use_per_km2 > 0 ~ "increasing",
-                                                 raw_slope_nearby_use_per_km2 < 0 ~ "decreasing",
-                                                 TRUE ~ "no change"),
-             raw_percent_slope_nearby_use = ifelse(is.na(raw_slope_nearby_use) | is.na(raw_avg_nearby_use) | raw_avg_nearby_use == 0,
-                                                   NA_real_,
-                                                   (raw_slope_nearby_use / raw_avg_nearby_use) * 100),
-             raw_percent_slope_nearby_use_per_km2 = ifelse(is.na(raw_slope_nearby_use_per_km2) | is.na(raw_avg_nearby_use_per_km2) | raw_avg_nearby_use_per_km2 == 0,
-                                                           NA_real_,
-                                                           (raw_slope_nearby_use_per_km2 / raw_avg_nearby_use_per_km2) * 100))
-    
-    
-    # Combine all indicators using standardized joins
-    final_results <- county_trends %>%
-      # add standardized indicators using helper function
-      add_standardized_indicators("raw_slope_nearby_use") %>%
-      add_standardized_indicators("raw_avg_nearby_use") %>%
-      add_standardized_indicators("raw_percent_slope_nearby_use") %>%
-      add_standardized_indicators("raw_slope_nearby_use_per_km2") %>%
-      add_standardized_indicators("raw_avg_nearby_use_per_km2") %>%
-      add_standardized_indicators("raw_percent_slope_nearby_use_per_km2") %>%
-      right_join(., points_with_counties %>% st_drop_geometry(), by = "fips") %>%
-      # reorder columns following standardized pattern
-      select(wsd_source_id, park_unit, everything())
-    
-  })})
-  
-  # Save results
-  if (save) {
-    if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
-    
-    filename <- file.path(output_dir, paste0("nearby_use_sensitivity_", Sys.Date(), ".csv"))
-    write_csv(final_results, filename)
-    
-    if (verbose) {
-      message("Results saved to: ", filename)
+                                           data_dir = file.path("data", "Latest county-level data"),
+                                           save = FALSE,
+                                           output_dir = NULL,
+                                           verbose = TRUE,
+                                           months = 1:12,
+                                           max_county_distance_km = 5) {
+  # Local helpers keep this indicator self-contained.
+  format_fips <- function(x, label) {
+    x <- trimws(as.character(x))
+    if (anyNA(x) || any(!grepl("^[0-9]{1,5}$", x))) {
+      stop(label, " must contain nonmissing county FIPS codes (1-5 digits).", call. = FALSE)
     }
+    sprintf("%05d", as.integer(x))
   }
   
-  # Print timing
-  if (verbose) {
-    end_time <- Sys.time()
-    total_time <- end_time - start_time
-    message("\nNearby water withdrawal sensitivity processing completed in ",
-            round(total_time, 2), " ", attr(total_time, "units"))
+  validate_options <- function(months, save, output_dir, verbose) {
+    if (!is.numeric(months) || !length(months) || anyNA(months) ||
+        any(!months %in% 1:12) || anyDuplicated(months)) {
+      stop("months must be unique integers from 1 through 12.", call. = FALSE)
+    }
+    for (x in list(save, verbose)) {
+      if (!is.logical(x) || length(x) != 1L || is.na(x)) {
+        stop("save and verbose must each be TRUE or FALSE.", call. = FALSE)
+      }
+    }
+    if (save && (is.null(output_dir) || !is.character(output_dir) ||
+                 length(output_dir) != 1L || is.na(output_dir) || !nzchar(output_dir))) {
+      stop("save is TRUE but output_dir was not provided.", call. = FALSE)
+    }
+    sort(as.integer(months))
   }
   
-  return(final_results)
+  assign_counties <- function(water_supplies, max_county_distance_km) {
+    if (!inherits(water_supplies, "sf") || is.na(sf::st_crs(water_supplies))) {
+      stop("water_supplies must be an sf object with a known CRS.", call. = FALSE)
+    }
+    required <- c("wsd_source_id", "park_unit")
+    if (!all(required %in% names(water_supplies)) || !nrow(water_supplies)) {
+      stop("water_supplies must have rows and columns wsd_source_id and park_unit.", call. = FALSE)
+    }
+    if (anyNA(water_supplies$wsd_source_id) || anyDuplicated(water_supplies$wsd_source_id)) {
+      stop("wsd_source_id must be nonmissing and unique.", call. = FALSE)
+    }
+    if (any(as.character(sf::st_geometry_type(water_supplies)) != "POINT")) {
+      stop("water_supplies must contain POINT geometries.", call. = FALSE)
+    }
+    if (!is.numeric(max_county_distance_km) || length(max_county_distance_km) != 1L ||
+        is.na(max_county_distance_km) || max_county_distance_km < 0) {
+      stop("max_county_distance_km must be nonnegative (Inf allows any distance).", call. = FALSE)
+    }
+    counties <- tigris::counties(cb = FALSE, year = 2020, progress_bar = FALSE)
+    county_source <- "2020 Census TIGER/Line counties"
+    if (!inherits(counties, "sf") || !nrow(counties) || is.na(sf::st_crs(counties)) ||
+        any(!as.character(sf::st_geometry_type(counties)) %in% c("POLYGON", "MULTIPOLYGON")) ||
+        any(sf::st_is_empty(counties))) {
+      stop("counties must be nonempty sf county polygons with a known CRS.", call. = FALSE)
+    }
+    id_col <- intersect(c("GEOID", "fips", "FIPS"), names(counties))
+    if (length(id_col)) {
+      fips <- format_fips(counties[[id_col[1L]]], "counties")
+    } else if (all(c("STATEFP", "COUNTYFP") %in% names(counties))) {
+      fips <- format_fips(sprintf("%02d%03d", as.integer(counties$STATEFP),
+                                  as.integer(counties$COUNTYFP)), "counties")
+    } else {
+      stop("counties needs GEOID, fips, FIPS, or STATEFP and COUNTYFP.", call. = FALSE)
+    }
+    if (anyDuplicated(fips)) stop("counties must have one polygon row per FIPS.", call. = FALSE)
+    counties <- sf::st_make_valid(counties)
+    area <- as.numeric(sf::st_area(sf::st_transform(counties, 5070))) / 1e6
+    if (any(!is.finite(area) | area <= 0)) stop("County areas must be positive.", call. = FALSE)
+    # Work in lon/lat so distances returned by sf are geodesic metres.
+    counties <- sf::st_transform(counties, 4326)
+    points <- sf::st_transform(water_supplies, 4326)
+    valid <- which(!sf::st_is_empty(points))
+    index <- rep(NA_integer_, nrow(points))
+    distance <- rep(NA_real_, nrow(points))
+    if (length(valid)) {
+      hits <- sf::st_intersects(points[valid, ], counties, model = "closed")
+      # A point on a shared boundary gets one deterministic county, never two rows.
+      index[valid] <- vapply(hits, function(i) {
+        if (length(i)) i[order(fips[i])][1L] else NA_integer_
+      }, integer(1))
+      distance[!is.na(index)] <- 0
+      # Points outside every county use the nearest county within the limit.
+      missing <- valid[is.na(index[valid])]
+      if (length(missing)) {
+        nearest <- sf::st_nearest_feature(points[missing, ], counties)
+        km <- as.numeric(sf::st_distance(points[missing, ], counties[nearest, ],
+                                         by_element = TRUE)) / 1000
+        distance[missing] <- km
+        accept <- is.finite(km) & km <= max_county_distance_km
+        index[missing[accept]] <- nearest[accept]
+      }
+    }
+    result <- sf::st_drop_geometry(water_supplies)[, intersect(
+      c("wsd_source_id", "park_unit", "park_name"), names(water_supplies)), drop = FALSE]
+    result$fips <- fips[index]
+    result$county_area_km2 <- area[index]
+    result$county_distance_km <- distance
+    result$county_source <- county_source
+    tibble::as_tibble(result)
+  }
   
+  read_withdrawals <- function(data_dir, sector, future, fips) {
+    period <- if (future) "2040_2070" else "2000_2020"
+    filename <- paste0(sector, "_monthly_avg_", period, ".csv")
+    path <- file.path(data_dir, filename)
+    if (!file.exists(path)) path <- file.path(data_dir, "water_demand_projections", filename)
+    if (!file.exists(path)) stop("Missing data file: ", filename, " in ", data_dir, call. = FALSE)
+    keys <- c("FIPS", if (sector == "tep") "plant_id", "Month",
+              if (future) c("climate_model", "emission_scenario"))
+    values <- if (sector == "tep") "tep" else c("population", "pub_per_cap", "irr")
+    header <- names(data.table::fread(path, nrows = 0L, showProgress = FALSE))
+    if (!all(c(keys, values) %in% header)) {
+      stop(filename, " is missing columns: ", paste(setdiff(c(keys, values), header), collapse = ", "),
+           call. = FALSE)
+    }
+    x <- data.table::fread(path, select = c(keys, values),
+                           colClasses = list(character = setdiff(keys, "Month"), numeric = values),
+                           data.table = FALSE, showProgress = FALSE)
+    x$FIPS <- format_fips(x$FIPS, filename)
+    # Capture the ensemble before restricting to supply counties (which may lack data).
+    members <- if (future) unique(x[c("climate_model", "emission_scenario")]) else NULL
+    if (future && (anyNA(members) || any(!nzchar(as.matrix(members))))) {
+      stop(filename, " contains missing model/scenario identifiers.", call. = FALSE)
+    }
+    x <- x[x$FIPS %in% fips, , drop = FALSE]
+    if (anyNA(x[keys]) || any(!x$Month %in% 1:12) || anyDuplicated(x[keys])) {
+      stop(filename, " contains invalid months, missing keys, or duplicate records.", call. = FALSE)
+    }
+    for (column in values) {
+      if (!is.numeric(x[[column]]) || any(!is.na(x[[column]]) &
+                                          (!is.finite(x[[column]]) | x[[column]] < 0))) {
+        stop(filename, ": ", column, " must be nonnegative numeric values or NA.", call. = FALSE)
+      }
+    }
+    names(x)[names(x) == "FIPS"] <- "fips"
+    list(data = tibble::as_tibble(x), members = tibble::as_tibble(members))
+  }
+  
+  aggregate_monthly <- function(pub, tep, fips, months, members = NULL,
+                                historical_plants = NULL) {
+    keys <- c("fips", "Month", if (!is.null(members)) c("climate_model", "emission_scenario"))
+    grid <- tidyr::expand_grid(fips = fips, Month = months)
+    if (!is.null(members)) grid <- dplyr::cross_join(grid, members)
+    # population is THOUSANDS of people; pub_per_cap is gallons/person/day.
+    pub <- dplyr::mutate(pub, public_supply_mgd = pub_per_cap * population / 1000,
+                         irrigation_mgd = irr, public_record = TRUE)
+    inventory <- dplyr::distinct(tep, fips, plant_id)
+    if (!is.null(historical_plants)) {
+      inventory <- dplyr::distinct(dplyr::bind_rows(inventory, historical_plants), fips, plant_id)
+    }
+    expected <- dplyr::count(inventory, fips, name = "n_expected_plants")
+    plant_totals <- tep |>
+      dplyr::group_by(dplyr::across(dplyr::all_of(keys))) |>
+      dplyr::summarise(thermoelectric_mgd = sum(tep),
+                       n_plant_records = dplyr::n(), .groups = "drop")
+    result <- grid |>
+      dplyr::left_join(dplyr::select(pub, dplyr::all_of(keys), public_supply_mgd,
+                                     irrigation_mgd, public_record), by = keys) |>
+      dplyr::left_join(plant_totals, by = keys) |>
+      dplyr::left_join(expected, by = "fips") |>
+      dplyr::mutate(
+        public_record = dplyr::coalesce(public_record, FALSE),
+        n_expected_plants = dplyr::coalesce(n_expected_plants, 0L),
+        n_plant_records = dplyr::coalesce(n_plant_records, 0L),
+        # No plant in the inventory is a structural zero. An absent known plant
+        # is missing data, even if other plants in the county have projections.
+        thermoelectric_mgd = dplyr::case_when(
+          n_expected_plants == 0L ~ 0,
+          n_plant_records < n_expected_plants ~ NA_real_,
+          TRUE ~ thermoelectric_mgd),
+        missing_plant_records = n_expected_plants - n_plant_records,
+        total_mgd = public_supply_mgd + irrigation_mgd + thermoelectric_mgd)
+    result
+  }
+  
+  average_period <- function(monthly, future = FALSE) {
+    # Use identical climatological month lengths in both periods. Do not sum
+    # rates in MGD or interpret these 12 climatological months as yearly data.
+    days <- c(31, 28.25, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+    monthly$days <- days[monthly$Month]
+    monthly |>
+      dplyr::group_by(dplyr::across(dplyr::all_of(
+        c("fips", if (future) c("climate_model", "emission_scenario"))))) |>
+      dplyr::summarise(
+        withdrawal_mgd = stats::weighted.mean(total_mgd, days),
+        public_supply_mgd = stats::weighted.mean(public_supply_mgd, days),
+        irrigation_mgd = stats::weighted.mean(irrigation_mgd, days),
+        thermoelectric_mgd = stats::weighted.mean(thermoelectric_mgd, days),
+        peak_month_withdrawal_mgd = if (length(total_mgd) && all(is.finite(total_mgd))) {
+          max(total_mgd)
+        } else NA_real_,
+        n_public_months = sum(public_record),
+        n_complete_months = sum(is.finite(total_mgd)),
+        missing_plant_records = sum(missing_plant_records),
+        .groups = "drop")
+  }
+  
+  standardize <- function(data, columns) {
+    # Match helper_functions.R: min-max normalization and cumulative percentile
+    # rank, calculated across water supplies (one row per supply).
+    for (column in columns) {
+      x <- data[[column]]
+      data[[sub("^raw_", "norm_", column)]] <- if (all(is.na(x))) {
+        rep(NA_real_, length(x))
+      } else {
+        scales::rescale(x, to = c(0, 1))
+      }
+      data[[sub("^raw_", "rank_", column)]] <- dplyr::cume_dist(x) * 100
+    }
+    data
+  }
+  
+  finish_results <- function(locations, result, save, output_dir, verbose, kind) {
+    # A left join preserves supply order, including supplies outside data coverage.
+    final <- dplyr::left_join(locations, result, by = "fips")
+    final <- standardize(final, names(final)[startsWith(names(final), "raw_")])
+    if (save) {
+      dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+      filename <- file.path(output_dir, paste0("nearby_use_", kind, "_", Sys.Date(), ".csv"))
+      readr::write_csv(final, filename)
+      if (verbose) message("Results saved to: ", filename)
+    }
+    final
+  }
+  
+  # Calculate the indicator.
+  months <- validate_options(months, save, output_dir, verbose)
+  locations <- assign_counties(water_supplies, max_county_distance_km)
+  fips <- unique(stats::na.omit(locations$fips))
+  pub <- read_withdrawals(data_dir, "pub_irr", FALSE, fips)$data
+  tep <- read_withdrawals(data_dir, "tep", FALSE, fips)$data
+  result <- aggregate_monthly(pub, tep, fips, months) |>
+    average_period() |>
+    dplyr::left_join(dplyr::distinct(locations, fips, county_area_km2), by = "fips") |>
+    dplyr::transmute(
+      fips, # baseline_period = "2000-2020", selected_months = paste(months, collapse = ","),
+      raw_avg_nearby_use = withdrawal_mgd,
+      raw_avg_nearby_use_per_km2 = withdrawal_mgd / county_area_km2
+      # raw_peak_month_nearby_use = peak_month_withdrawal_mgd,
+      # raw_peak_month_nearby_use_per_km2 = peak_month_withdrawal_mgd / county_area_km2,
+      # baseline_public_supply_mgd = public_supply_mgd,
+      # baseline_irrigation_mgd = irrigation_mgd,
+      # baseline_thermoelectric_mgd = thermoelectric_mgd,
+      # n_complete_months, n_public_months, missing_plant_records,
+      # historical_trend_available = FALSE,
+      # data_status = dplyr::case_when(
+      #   n_public_months == 0L ~ "missing_historical_county",
+      #   n_complete_months < length(months) ~ "incomplete_historical_data",
+      #   TRUE ~ "ok")
+    )
+  finish_results(locations, result, save, output_dir, verbose, "sensitivity")
 }
