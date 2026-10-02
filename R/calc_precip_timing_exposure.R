@@ -296,7 +296,14 @@ calc_precip_timing_exposure <- function(water_supplies,
   }
   
   suppressMessages(suppressWarnings({
-    # Primary timing indicators: choose the direction supported by more models.
+    nearest_quantile <- function(x, probability) {
+      x <- x[is.finite(x)]
+      if (!length(x)) return(NA_real_)
+      target <- stats::quantile(x, probability, names = FALSE, type = 7)
+      x[which.min(abs(x - target))]
+    }
+    # Primary timing indicators: choose the actual member nearest each tail,
+    # then choose the direction supported by more models.
     # For an exact 50/50 split, choose the direction with the larger absolute
     # tail change (p10 earlier versus p90 later). Agreement remains 0.5.
     timing_summary <- precip_change %>%
@@ -304,8 +311,8 @@ calc_precip_timing_exposure <- function(water_supplies,
       dplyr::summarize(n_valid = sum(!is.na(timing_change)),
         n_earlier = sum(timing_change < 0, na.rm = TRUE),
         n_later = sum(timing_change > 0, na.rm = TRUE),
-        p10_timing_change = stats::quantile(timing_change, 0.10, na.rm = TRUE),
-        p90_timing_change = stats::quantile(timing_change, 0.90, na.rm = TRUE),
+        p10_timing_change = nearest_quantile(timing_change, 0.10),
+        p90_timing_change = nearest_quantile(timing_change, 0.90),
         precip_timing_change_direction = dplyr::case_when(n_valid == 0 ~ NA_character_,
           n_earlier > n_later ~ "earlier",
           n_later > n_earlier ~ "later",
