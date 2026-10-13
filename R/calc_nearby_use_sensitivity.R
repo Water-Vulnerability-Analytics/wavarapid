@@ -29,7 +29,7 @@ calc_nearby_use_sensitivity <- function(water_supplies,
   # 1. Assign each supply to a county
   counties <- tigris::counties(cb = FALSE, year = 2020, progress_bar = FALSE) |>
     st_make_valid()
-  counties$area_km2 <- as.numeric(st_area(st_transform(counties, 5070))) / 1e6
+  counties$area_km2 <- as.numeric(counties$ALAND) / 1e6 # land area; polygons keep water for matching
   counties <- st_transform(counties, 4326)
   points <- st_transform(water_supplies, 4326)
 
@@ -70,6 +70,7 @@ calc_nearby_use_sensitivity <- function(water_supplies,
     group_by(fips) |>
     summarise(raw_avg_nearby_use = weighted.mean(total_mgd, days_in_month[Month])) |>
     left_join(distinct(locations, fips, county_area_km2), by = "fips") |>
+    # if NA, it is because the county data is missing or incomplete
     transmute(fips, raw_avg_nearby_use,
               raw_avg_nearby_use_per_km2 = raw_avg_nearby_use / county_area_km2)
 
