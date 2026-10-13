@@ -7,7 +7,9 @@
 #'
 #' - Absolute change: (future - historical) / county area, in MGD/km2.
 #' - Percent change: 100 * (future - historical) / historical MGD.
-#' - A missing month or known power plant makes a county total NA.
+#' - A missing month, or a power plant expected in that period but not
+#'   reported, makes a county total NA. Plants retired out of the projections
+#'   are not expected in the future period.
 #'
 #' Supplies use the 2020 TIGER/Line county they fall in, or the nearest county
 #' within max_county_distance_km. norm_/rank_ columns are across supplies.
@@ -35,7 +37,7 @@ calc_nearby_use_exposure <- function(water_supplies,
   # 1. Assign each supply to a county
   counties <- tigris::counties(cb = FALSE, year = 2020, progress_bar = FALSE) |>
     st_make_valid()
-  counties$area_km2 <- as.numeric(st_area(st_transform(counties, 5070))) / 1e6
+  counties$area_km2 <- as.numeric(counties$ALAND) / 1e6 # land area; polygons keep water for matching
   counties <- st_transform(counties, 4326)
   points <- st_transform(water_supplies, 4326)
 
@@ -70,11 +72,16 @@ calc_nearby_use_exposure <- function(water_supplies,
     fread(file.path(data_dir, "tep_monthly_avg_2040_2070.csv"), select = c(tep_cols, model_cols))) |>
     mutate(fips = sprintf("%05d", FIPS))
 
-  # Plants a county should report: historical plants for the baseline, and
-  # plants from either period for projections.
+  # Plants a county should report, scoped to the period being evaluated.
+  # A plant in the historical file but absent from the projections has been
+  # retired, not lost: Blumberg and Warziniack set future withdrawals to zero
+  # for coal and gas plants in states with 100% clean-energy targets, and for
+  # any plant with no withdrawals over 2018-2020. Expecting the projections to
+  # report those plants would make the county NA for every member and month.
   hist_plants <- tep |> filter(climate_model == "historical") |> distinct(fips, plant_id) |>
     count(fips, name = "hist_plants")
-  all_plants <- tep |> distinct(fips, plant_id) |> count(fips, name = "all_plants")
+  future_plants <- tep |> filter(climate_model != "historical") |> distinct(fips, plant_id) |>
+    count(fips, name = "future_plants")
 
   # 3. Ensemble members
   members <- pub |> filter(climate_model != "historical", emission_scenario != "ssp126") |>
@@ -91,10 +98,11 @@ calc_nearby_use_exposure <- function(water_supplies,
                 summarise(tep_mgd = sum(tep), n_plants = n(), .groups = "drop"),
               by = c("fips", "Month", model_cols)) |>
     left_join(hist_plants, by = "fips") |>
-    left_join(all_plants, by = "fips") |>
+    left_join(future_plants, by = "fips") |>
     mutate(n_plants = coalesce(n_plants, 0L),
-           n_expected = coalesce(if_else(climate_model == "historical", hist_plants, all_plants), 0L),
-           # No known plants = zero; a missing known plant = NA
+           n_expected = coalesce(if_else(climate_model == "historical", hist_plants, future_plants), 0L),
+           # No plants expected this period = zero; a plant that should report
+           # this period but doesn't (a month or member gap) = NA
            tep_mgd = case_when(n_expected == 0 ~ 0, n_plants < n_expected ~ NA, TRUE ~ tep_mgd),
            total_mgd = pub_irr_mgd + tep_mgd) |>
     group_by(fips, climate_model, emission_scenario) |>
