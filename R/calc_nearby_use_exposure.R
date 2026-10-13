@@ -21,7 +21,13 @@
 #' @param months Calendar months to average (default all 12).
 #' @param emission_scenarios,climate_models Optional ensemble subsets.
 #' @param max_county_distance_km Nearest-county limit for points outside counties.
-#' @return Tibble with one row per supply.
+#' @return Tibble with one row per supply. Results are NA where data_status is
+#'   not "ok": no county within max_county_distance_km (unmatched_county), the
+#'   county is absent from the historical or future file (missing_*_county), a
+#'   month or expected plant is unreported (incomplete_*_data), or no ensemble
+#'   member is complete (no_complete_model_members). Percent change is also NA
+#'   when historical withdrawal is zero (zero_historical_withdrawal). Gaps are
+#'   left NA rather than treated as zero use.
 calc_nearby_use_exposure <- function(water_supplies,
                                      data_dir = "data/Latest county-level data/water_demand_projections",
                                      save = FALSE,

@@ -15,7 +15,11 @@
 #' @param verbose Report the saved filename.
 #' @param months Calendar months to average (default all 12).
 #' @param max_county_distance_km Nearest-county limit for points outside counties.
-#' @return Tibble with one row per supply.
+#' @return Tibble with one row per supply. Results are NA when no county falls
+#'   within max_county_distance_km, the county is absent from the historical
+#'   file, or any month or expected plant is unreported. There is no
+#'   data_status column, as every gap here is a historical one. Gaps are left
+#'   NA rather than treated as zero use.
 calc_nearby_use_sensitivity <- function(water_supplies,
                                         data_dir = "data/Latest county-level data/water_demand_projections",
                                         save = FALSE,
