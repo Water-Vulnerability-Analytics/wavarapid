@@ -1,149 +1,92 @@
-#' Calculate Nearby Water Withdrawals/Use Sensitivity Indicator
+#' Calculate historical nearby-use pressure from county monthly climatologies
 #'
-#' Calculates a county-level nearby water use sensitivity indicator for water supplies
-#' based on historical total water withdrawals from USGS data. Water supplies are
-#' assigned to the nearest county, historical withdrawals are aggregated across
-#' major use sectors, and county-level withdrawal trends are estimated using
-#' Sen's slope and Mann-Kendall trend tests. Outputs include raw average
-#' withdrawals, raw trend estimates, trend direction, and standardized indicators.
+#' 2000-2020 county withdrawals (public supply + crop irrigation +
+#' thermoelectric, in MGD) from Blumberg and Warziniack, per county area. The
+#' main measure is raw_avg_nearby_use_per_km2. The data are 12 climatological
+#' months, not a yearly series, so no trend can be estimated. A missing month
+#' or known power plant makes a county total NA.
 #'
-#' @param water_supplies sf object with water supply locations.
-#' @param observed_use data frame of historical county-level water withdrawals.
-#'   Defaults to `fread("data/all/RPAWaterDemand/1_BaseData/Trash 2022/usgswithdrawals.csv")`.
-#'   Must contain columns for year, county/state identifiers, FIPS, and sectoral
-#'   withdrawal variables used in the function.
-#' @param save logical, whether to save output. Default is `FALSE`.
-#' @param output_dir character, directory path for saving files. Required if
-#'   `save = TRUE`.
-#' @param verbose logical, whether to print progress and timing messages. Default is `TRUE`.
-
+#' Supplies use the 2020 TIGER/Line county they fall in, or the nearest county
+#' within max_county_distance_km. norm_/rank_ columns are across supplies.
+#'
+#' @param water_supplies sf points with wsd_source_id, park_unit, park_name.
+#' @param data_dir Folder with the water_demand_projections CSVs.
+#' @param save,output_dir Save nearby_use_sensitivity_YYYY-MM-DD.csv to output_dir.
+#' @param verbose Report the saved filename.
+#' @param months Calendar months to average (default all 12).
+#' @param max_county_distance_km Nearest-county limit for points outside counties.
+#' @return Tibble with one row per supply. Results are NA when no county falls
+#'   within max_county_distance_km, the county is absent from the historical
+#'   file, or any month or expected plant is unreported. There is no
+#'   data_status column, as every gap here is a historical one. Gaps are left
+#'   NA rather than treated as zero use.
 calc_nearby_use_sensitivity <- function(water_supplies,
-                                        observed_use = fread("data/all/RPAWaterDemand/1_BaseData/Trash 2022/usgswithdrawals.csv"), #precompiled data from USFS
+                                        data_dir = "data/Latest county-level data/water_demand_projections",
                                         save = FALSE,
                                         output_dir = NULL,
-                                        verbose = TRUE) {
-  
-  # Input validation
-  stopifnot(
-    "water_supplies must be an sf object" = inherits(water_supplies, "sf"),
-    "save is TRUE but output_dir not provided" = !save || !is.null(output_dir)
-  )
-  
-  start_time <- Sys.time()
-  
-  suppressMessages({suppressWarnings({
-    
-    counties <- counties(cb = TRUE, year = 2019)
-    
-    counties <- st_transform(counties, st_crs(water_supplies)) %>%
-      mutate(fips = as.numeric(paste0(STATEFP, COUNTYFP)),
-             county_area_km2 = as.numeric(st_area(st_transform(geometry, 5070))) / 1000000)
-    
-    points_with_counties <- st_join(water_supplies, counties, join = st_nearest_feature) %>%
-      mutate(fips = as.numeric(paste0(STATEFP, COUNTYFP))) %>%
-      select(park_unit, wsd_source_id, fips, county_area_km2)
-    
-    # aq = aquaculture; dp = domestic; ic = industrial + mining; ir = irrigated agriculture; ls = livestock; th = thermoelectric
-    #1985-2015 observed data:
-    use_historic <- observed_use %>%
-      select(year, state_name, county_nm, fips = FIPS, PStot,
-             aq = AquaSelfTot,
-             dp = DomTot,
-             ic = IndTot,
-             ir = IrrigSelfTot,
-             ls = StockSelfTot,
-             th = ThermSelfTot,
-             min = MinSelfTot) %>%
-      mutate(across(c(aq, dp, ic, ir, ls, th, min), ~as.numeric(na_if(as.character(.x), "-"))),
-             ic = ic + min,
-             fips = as.numeric(fips)) %>%
-      select(-min) %>%
-      # subset to only counties with water supplies
-      filter(fips %in% unique(points_with_counties$fips)) %>%
-      pivot_longer(c(aq, dp, ic, ir, ls, th), names_to = "sector", values_to = "withdrawal") %>%
-      group_by(state_name, county_nm, fips, year) %>%
-      summarize(total_withdrawal = sum(withdrawal, na.rm = TRUE), .groups = "drop") %>%
-      left_join(points_with_counties %>% st_drop_geometry() %>% distinct(fips, county_area_km2),
-                by = "fips") %>%
-      mutate(total_withdrawal_per_km2 = total_withdrawal / county_area_km2)
-    
-    county_trends <- use_historic %>%
-      group_by(state_name, county_nm, fips) %>%
-      arrange(year, .by_group = TRUE) %>%
-      summarize(raw_avg_nearby_use = mean(total_withdrawal, na.rm = TRUE),
-                raw_avg_nearby_use_per_km2 = mean(total_withdrawal_per_km2, na.rm = TRUE),
-                data = list(dplyr::pick(dplyr::everything())),
-                .groups = "drop") %>%
-      mutate(n_years = map_int(data, ~ sum(!is.na(.x$total_withdrawal))),
-             sen = map(data, ~ {
-               x <- .x$total_withdrawal
-               if (sum(!is.na(x)) >= 3) sens.slope(x) else NULL
-             }),
-             sen_per_km2 = map(data, ~ {
-               x <- .x$total_withdrawal_per_km2
-               if (sum(!is.na(x)) >= 3) sens.slope(x) else NULL
-             }),
-             mk = map(data, ~ {
-               x <- .x$total_withdrawal
-               if (sum(!is.na(x)) >= 3) mk.test(x) else NULL
-             }),
-             raw_slope_nearby_use = map_dbl(sen, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
-             raw_slope_nearby_use_per_km2 = map_dbl(sen_per_km2, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
-             mk_tau = map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
-             mk_p_value = map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$p.value),
-             mk_significant = mk_p_value < 0.05) %>%
-      select(-data, -sen, -sen_per_km2, -mk, -mk_p_value, -mk_tau) %>%
-      mutate(trend_direction = case_when(is.na(raw_slope_nearby_use) ~ NA_character_,
-                                         raw_slope_nearby_use > 0 ~ "increasing",
-                                         raw_slope_nearby_use < 0 ~ "decreasing",
-                                         TRUE ~ "no change"),
-             trend_direction_per_km2 = case_when(is.na(raw_slope_nearby_use_per_km2) ~ NA_character_,
-                                                 raw_slope_nearby_use_per_km2 > 0 ~ "increasing",
-                                                 raw_slope_nearby_use_per_km2 < 0 ~ "decreasing",
-                                                 TRUE ~ "no change"),
-             raw_percent_slope_nearby_use = ifelse(is.na(raw_slope_nearby_use) | is.na(raw_avg_nearby_use) | raw_avg_nearby_use == 0,
-                                                   NA_real_,
-                                                   (raw_slope_nearby_use / raw_avg_nearby_use) * 100),
-             raw_percent_slope_nearby_use_per_km2 = ifelse(is.na(raw_slope_nearby_use_per_km2) | is.na(raw_avg_nearby_use_per_km2) | raw_avg_nearby_use_per_km2 == 0,
-                                                           NA_real_,
-                                                           (raw_slope_nearby_use_per_km2 / raw_avg_nearby_use_per_km2) * 100))
-    
-    
-    # Combine all indicators using standardized joins
-    final_results <- county_trends %>%
-      # add standardized indicators using helper function
-      add_standardized_indicators("raw_slope_nearby_use") %>%
-      add_standardized_indicators("raw_avg_nearby_use") %>%
-      add_standardized_indicators("raw_percent_slope_nearby_use") %>%
-      add_standardized_indicators("raw_slope_nearby_use_per_km2") %>%
-      add_standardized_indicators("raw_avg_nearby_use_per_km2") %>%
-      add_standardized_indicators("raw_percent_slope_nearby_use_per_km2") %>%
-      right_join(., points_with_counties %>% st_drop_geometry(), by = "fips") %>%
-      # reorder columns following standardized pattern
-      select(wsd_source_id, park_unit, everything())
-    
-  })})
-  
-  # Save results
+                                        verbose = TRUE,
+                                        months = 1:12,
+                                        max_county_distance_km = 5) {
+
+  days_in_month <- c(31, 28.25, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+
+  # 1. Assign each supply to a county
+  counties <- tigris::counties(cb = FALSE, year = 2020, progress_bar = FALSE) |>
+    st_make_valid()
+  counties$area_km2 <- as.numeric(counties$ALAND) / 1e6 # land area; polygons keep water for matching
+  counties <- st_transform(counties, 4326)
+  points <- st_transform(water_supplies, 4326)
+
+  nearest <- st_nearest_feature(points, counties)
+  km <- as.numeric(st_distance(points, counties[nearest, ], by_element = TRUE)) / 1000
+  nearest[is.na(km) | km > max_county_distance_km] <- NA
+
+  locations <- st_drop_geometry(water_supplies) |>
+    select(any_of(c("wsd_source_id", "park_unit", "park_name"))) |>
+    mutate(fips = counties$GEOID[nearest],
+           county_area_km2 = counties$area_km2[nearest],
+           county_distance_km = km,
+           county_source = "2020 Census TIGER/Line counties") |>
+    as_tibble()
+
+  # 2. Read historical withdrawals
+  pub <- fread(file.path(data_dir, "pub_irr_monthly_avg_2000_2020.csv"),
+               select = c("FIPS", "Month", "population", "pub_per_cap", "irr")) |>
+    transmute(fips = sprintf("%05d", FIPS), Month,
+              pub_irr_mgd = pub_per_cap * population / 1000 + irr)  # population is thousands
+  tep <- fread(file.path(data_dir, "tep_monthly_avg_2000_2020.csv"),
+               select = c("FIPS", "plant_id", "Month", "tep")) |>
+    mutate(fips = sprintf("%05d", FIPS))
+  plants <- tep |> distinct(fips, plant_id) |> count(fips, name = "n_expected")
+
+  # 3. County withdrawals, averaged over months (weighted by days)
+  result <- expand_grid(fips = unique(na.omit(locations$fips)), Month = months) |>
+    left_join(pub, by = c("fips", "Month")) |>
+    left_join(tep |> group_by(fips, Month) |>
+                summarise(tep_mgd = sum(tep), n_plants = n(), .groups = "drop"),
+              by = c("fips", "Month")) |>
+    left_join(plants, by = "fips") |>
+    mutate(n_plants = coalesce(n_plants, 0L),
+           n_expected = coalesce(n_expected, 0L),
+           # No known plants = zero; a missing known plant = NA
+           tep_mgd = case_when(n_expected == 0 ~ 0, n_plants < n_expected ~ NA, TRUE ~ tep_mgd),
+           total_mgd = pub_irr_mgd + tep_mgd) |>
+    group_by(fips) |>
+    summarise(raw_avg_nearby_use = weighted.mean(total_mgd, days_in_month[Month])) |>
+    left_join(distinct(locations, fips, county_area_km2), by = "fips") |>
+    # if NA, it is because the county data is missing or incomplete
+    transmute(fips, raw_avg_nearby_use,
+              raw_avg_nearby_use_per_km2 = raw_avg_nearby_use / county_area_km2)
+
+  # 4. Join to supplies and standardize
+  final <- locations |>
+    left_join(result, by = "fips") |>
+    add_standardized_indicators("raw_")
+
   if (save) {
-    if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
-    
     filename <- file.path(output_dir, paste0("nearby_use_sensitivity_", Sys.Date(), ".csv"))
-    write_csv(final_results, filename)
-    
-    if (verbose) {
-      message("Results saved to: ", filename)
-    }
+    write_csv(final, filename)
+    if (verbose) message("Results saved to: ", filename)
   }
-  
-  # Print timing
-  if (verbose) {
-    end_time <- Sys.time()
-    total_time <- end_time - start_time
-    message("\nNearby water withdrawal sensitivity processing completed in ",
-            round(total_time, 2), " ", attr(total_time, "units"))
-  }
-  
-  return(final_results)
-  
+  final
 }
