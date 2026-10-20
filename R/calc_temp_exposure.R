@@ -19,8 +19,9 @@
 #'
 #' @return tibble with water supply ID, park info, and temperature exposure indicators
 #'
+#' @export
 calc_temp_exposure <- function(water_supplies,
-                               temp_data = "data/rapid/inputs/loca2_temperature_water_supplies/",
+                               temp_data = wava_data_path("rapid", "inputs", "loca2_temperature_water_supplies/"),
                                hindcast = TRUE,
                                historical,
                                future,

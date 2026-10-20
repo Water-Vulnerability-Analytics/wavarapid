@@ -37,9 +37,10 @@
 #'   point was inundated in the reference and/or projected scenario). All
 #'   indicator columns are `NA` for water supplies more than 50 km from the coast.
 
+#' @export
 calc_inundation_exposure <- function(ws_scenarios,
-                                     inundation_raster_data_dir = here("data", "rapid", "inputs", "coast_comp", "Extent_Rasters"),
-                                     coast_distances = here("data", "rapid", "inputs", "coast_comp", "coastal_site_geometry.csv"),
+                                     inundation_raster_data_dir = wava_data_path("rapid", "inputs", "coast_comp", "Extent_Rasters"),
+                                     coast_distances = wava_data_path("rapid", "inputs", "coast_comp", "coastal_site_geometry.csv"),
                                      save = FALSE,
                                      output_dir = NULL,
                                      verbose = TRUE) {
@@ -104,8 +105,8 @@ calc_inundation_exposure <- function(ws_scenarios,
       filter(count > 1)
 
     # build full paths to all tiles (using per-row state to avoid recycling mismatches)
-    ref_tiles  <- sort(unique(here(inundation_raster_data_dir, locs_needed$state, locs_needed$ref_file)))
-    proj_tiles <- sort(unique(here(inundation_raster_data_dir, locs_needed$state, locs_needed$proj_file)))
+    ref_tiles  <- sort(unique(file.path(inundation_raster_data_dir, locs_needed$state, locs_needed$ref_file)))
+    proj_tiles <- sort(unique(file.path(inundation_raster_data_dir, locs_needed$state, locs_needed$proj_file)))
     
     stopifnot(length(ref_tiles)  >= 1, all(file.exists(ref_tiles)))
     stopifnot(length(proj_tiles) >= 1, all(file.exists(proj_tiles)))
@@ -133,9 +134,9 @@ calc_inundation_exposure <- function(ws_scenarios,
 
         tile_file <- unique(region_sf[[file_col]])
 
-        stopifnot("batch path expects exactly one tile per scenario — proj_file split should guarantee this" = length(tile_file) == 1)
+        stopifnot("batch path expects exactly one tile per scenario \u2014 proj_file split should guarantee this" = length(tile_file) == 1)
 
-        tile_path <- here(inundation_raster_data_dir, substr(tile_file, 1, 2), tile_file)
+        tile_path <- file.path(inundation_raster_data_dir, substr(tile_file, 1, 2), tile_file)
 
         stopifnot(file.exists(tile_path))
 

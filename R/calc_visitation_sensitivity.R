@@ -23,6 +23,7 @@
 #' A tibble combining the original `water_supplies` data with historical visitation
 #' sensitivity indicators.
 #'
+#' @export
 calc_visitation_sensitivity <- function(water_supplies,
                                         start_year = 1990,
                                         end_year = 2024,

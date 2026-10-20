@@ -26,9 +26,10 @@
 #'
 #' @return A tibble with one row per water supply and wet-period exposure
 #'   indicators.
+#' @export
 calc_wet_period_exposure <- function(
     water_supplies,
-    period_data = "data/rapid/inputs/loca_cmip6_precip_periods_water_supplies/",
+    period_data = wava_data_path("rapid", "inputs", "loca_cmip6_precip_periods_water_supplies/"),
     historical,
     future,
     save = FALSE,

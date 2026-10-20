@@ -16,8 +16,9 @@
 #'
 #' @return tibble with water supply ID, park info, and runoff exposure indicators
 #'
+#' @export
 calc_runoff_exposure <- function(water_supplies,
-                                 runoff_data = "data/rapid/inputs/loca2_runoff_water_supplies/",
+                                 runoff_data = wava_data_path("rapid", "inputs", "loca2_runoff_water_supplies/"),
                                  hindcast = TRUE,
                                  historical,
                                  future,

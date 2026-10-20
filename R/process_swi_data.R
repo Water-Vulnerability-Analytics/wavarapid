@@ -17,17 +17,18 @@
 #' Research Letters.
 #'
 #' @param data_path character, path to output_data.txt from the Adams et al. 2024 dataset.
-#'   Defaults to `here("data", "all", "coast_comp_data", "adams_swi_2024", "data", "output_data.txt")`.
+#'   Defaults to `wava_data_path("all", "coast_comp_data", "adams_swi_2024", "data", "output_data.txt")`.
 #' @param save logical, whether to save output GeoPackage. Defaults to TRUE.
 #' @param output_dir character, directory where gpkg file is written.
-#'   Defaults to `here("data", "rapid", "inputs", "swi")`.
+#'   Defaults to `wava_data_path("rapid", "inputs", "swi")`.
 #'
+#' @export
 process_swi_data <- function(
-    data_path  = here("data", "all", "coast_comp_data", "adams_swi_2024", "data", "output_data.txt"),
+    data_path  = wava_data_path("all", "coast_comp_data", "adams_swi_2024", "data", "output_data.txt"),
     save       = TRUE,
-    output_dir = here("data", "rapid", "inputs", "swi")) {
+    output_dir = wava_data_path("rapid", "inputs", "swi")) {
 
-  stopifnot("output_data.txt not found — check data_path" = file.exists(data_path),
+  stopifnot("output_data.txt not found \u2014 check data_path" = file.exists(data_path),
             "save is TRUE but output_dir not provided"    = !save || !is.null(output_dir))
 
   swi_pts <- read.table(data_path, header = TRUE, sep = " ") %>%

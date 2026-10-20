@@ -1,9 +1,9 @@
 #' Process Water Rights Indicator Data - Aqueduct 4.0 Annual Water Risk Data
 #'
 #'
-#' Data Download links: [active as on August 2026]
-#' https://www.wri.org/data/aqueduct-global-maps-40-data#download-form [Form to download data and sign up for updates]
-#' https://files.wri.org/aqueduct/aqueduct-4-0-water-risk-data.zip [direct link to download a zip folder with .GDB dataset version]
+#' Data Download links: \[active as on August 2026\]
+#' https://www.wri.org/data/aqueduct-global-maps-40-data#download-form \[Form to download data and sign up for updates\]
+#' https://files.wri.org/aqueduct/aqueduct-4-0-water-risk-data.zip \[direct link to download a zip folder with .GDB dataset version\]
 #' Aqueduct Data Dictionary: https://github.com/wri/Aqueduct40/blob/master/data_dictionary_water-risk-atlas.md
 #'
 #'
@@ -51,13 +51,14 @@
 #'
 #' @return tibble, one row per water system x rcp x period
 #'
+#' @export
 process_waterrightsindicator_data <- function(
     water_supplies,
-    gdb_path          = here("data", "all", "aqueduct_v4",
+    gdb_path          = wava_data_path("all", "aqueduct_v4",
                              "Aqueduct40_waterrisk_download_Y2023M07D05", "GDB",
                              "Aq40_Y2023D07M05.gdb"),
     save              = TRUE,
-    output_dir        = here("data", "rapid", "inputs", "WaterRightsIndicator"),
+    output_dir        = wava_data_path("rapid", "inputs", "WaterRightsIndicator"),
     save_intermediate = TRUE,
     verbose           = TRUE,
     quiet_warnings    = TRUE) {

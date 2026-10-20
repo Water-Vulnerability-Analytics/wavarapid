@@ -44,8 +44,9 @@
 #' Dudley, R.W., Hodgkins, G.A., McHale, M.R., Kolian, M.J., & Renard, B. (2017).
 #'   Trends in snowmelt-related streamflow timing in the conterminous United
 #'   States. J. Hydrology, 547, 208-221.
+#' @export
 calc_runoff_timing_exposure <- function(water_supplies,
-                                        runoff_data = "data/rapid/inputs/loca2_runoff_water_supplies/",
+                                        runoff_data = wava_data_path("rapid", "inputs", "loca2_runoff_water_supplies/"),
                                         hindcast = TRUE,
                                         historical,
                                         future,

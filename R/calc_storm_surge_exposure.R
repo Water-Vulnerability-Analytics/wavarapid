@@ -7,7 +7,7 @@
 #'
 #' - CMCC-CM2-VHR4 is excluded from the worst-case model pool.
 #' - Water supplies whose nearest surge station is >50 km away, or that are
-#'   >50 km from the CUSP coastline, receive NA.
+#'   more than 50 km from the CUSP coastline, receive NA.
 #' - Distance/elevation weight: `sqrt((dist_weight^2 + elev_weight^2) / 2)`,
 #'   with `elev_weight` capped at the 10 m Low Elevation Coastal Zone
 #'   threshold (McGranahan et al. 2007).
@@ -31,9 +31,10 @@
 #'
 #' @return tibble with raw and standardized storm surge exposure indicators
 #'
+#' @export
 calc_storm_surge_exposure <- function(water_supplies,
                                       storm_surge_stations,
-                                      coast_geometry = here("data", "rapid",
+                                      coast_geometry = wava_data_path("rapid",
                                                             "inputs", "coast_comp",
                                                             "coastal_site_geometry.csv"),
                                       save = FALSE,
@@ -44,10 +45,10 @@ calc_storm_surge_exposure <- function(water_supplies,
   stopifnot(
     "water_supplies must be an sf object" = inherits(water_supplies, "sf"),
     "storm_surge_stations must be a file path or sf object" = is.character(storm_surge_stations) || inherits(storm_surge_stations, "sf"),
-    "storm_surge_stations file does not exist — run process_storm_surge_data() first" =
+    "storm_surge_stations file does not exist \u2014 run process_storm_surge_data() first" =
       !is.character(storm_surge_stations) || file.exists(storm_surge_stations),
     "coast_geometry must be a file path or data frame" = is.character(coast_geometry) || is.data.frame(coast_geometry),
-    "coast geometry file does not exist — run process_coastal_geometry() first" =
+    "coast geometry file does not exist \u2014 run process_coastal_geometry() first" =
       !is.character(coast_geometry) || file.exists(coast_geometry),
     "save is TRUE but output_dir not provided" = !save || !is.null(output_dir)
   )

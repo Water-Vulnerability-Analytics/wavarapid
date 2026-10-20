@@ -28,8 +28,9 @@
 #'   member is complete (no_complete_model_members). Percent change is also NA
 #'   when historical withdrawal is zero (zero_historical_withdrawal). Gaps are
 #'   left NA rather than treated as zero use.
+#' @export
 calc_nearby_use_exposure <- function(water_supplies,
-                                     data_dir = "data/Latest county-level data/water_demand_projections",
+                                     data_dir = wava_data_path("Latest county-level data", "water_demand_projections"),
                                      save = FALSE,
                                      output_dir = NULL,
                                      verbose = TRUE,

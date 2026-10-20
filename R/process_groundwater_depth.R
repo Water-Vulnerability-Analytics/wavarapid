@@ -30,19 +30,20 @@
 #'   up on a site. Defaults to 50000.
 #' @param save logical, whether to save output CSV. Defaults to TRUE.
 #' @param output_dir character, directory where CSV is written.
-#'   Defaults to `here("data", "rapid", "inputs", "groundwater_depth")`.
+#'   Defaults to `wava_data_path("rapid", "inputs", "groundwater_depth")`.
 #' @param verbose logical, print progress messages. Defaults to TRUE.
 #'
 #' @return data.frame of wsd_source_id, park_unit, park_name, wtd_point_m.
 
+#' @export
 process_groundwater_depth <- function(
     water_supplies,
-    wtd_path       = here("data", "all", "groundwater_sensitivity",
+    wtd_path       = wava_data_path("all", "groundwater_sensitivity",
                            "wtd_mean_estimate_RF_additional_inputs_dummy_drop0LP_1s_CONUS2_m_v_20240813.tif"),
     start_buffer_m = 500,
     max_buffer_m   = 50000,
     save           = FALSE,
-    output_dir     = here("data", "rapid", "inputs", "groundwater_depth"),
+    output_dir     = wava_data_path("rapid", "inputs", "groundwater_depth"),
     verbose        = TRUE) {
 
   stopifnot(

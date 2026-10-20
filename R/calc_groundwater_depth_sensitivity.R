@@ -39,6 +39,7 @@
 #'   (continuous depth, inverted) and `raw_groundwater_depth_bin` (DRASTIC-style
 #'   bin score, not inverted)
 
+#' @export
 calc_groundwater_depth_sensitivity <- function(water_supplies,
                                                groundwater_data,
                                                save = FALSE,

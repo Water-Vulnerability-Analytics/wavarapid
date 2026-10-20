@@ -13,6 +13,7 @@
 #' 
 #' @return tibble with water supply ID, park info, and fire sensitivity indicators
 #' 
+#' @export
 calc_fire_sensitivity <- function(water_supplies,
                                   whp_raster,
                                   whp_type,

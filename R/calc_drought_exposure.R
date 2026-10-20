@@ -37,8 +37,9 @@
 #'
 #' @return A tibble with drought exposure indicators by water supply, including
 #'   SPEI fit diagnostics for capped `Inf` and `-Inf` monthly values.
+#' @export
 calc_drought_exposure <- function(water_supplies,
-                                  drought_data = "data/rapid/inputs/loca2_drought_monthly_1980-2010_2035-2065_hindcast-TRUE.parquet",
+                                  drought_data = wava_data_path("rapid", "inputs", "loca2_drought_monthly_1980-2010_2035-2065_hindcast-TRUE.parquet"),
                                   spei_scale = 12,
                                   spei_inf_cap = 4,
                                   historical,

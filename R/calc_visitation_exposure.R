@@ -14,6 +14,7 @@
 #'
 #' @param water_supplies A data frame containing at least a `park_unit` column, representing
 #'   unique park identifiers for which visitation exposure indicators will be calculated.
+#' @param start_year Numeric. First year of visitation data to request.
 #' @param baseline_growth_rate Default growth rate to set to if actual growth
 #'  rate per park is either below it, negative, not enough data, or for parks with timed entry.
 #' @param baseline_seasonality_shift Numeric. A dampening factor (0-1) applied to the
@@ -31,6 +32,7 @@
 #'
 #' @return
 #' A tibble combining the original `water_supplies` data with visitation exposure indicators.
+#' @export
 calc_visitation_exposure <- function(water_supplies,
                                      start_year = 1990,
                                      baseline_growth_rate = 0.0087,

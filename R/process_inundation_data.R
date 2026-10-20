@@ -20,7 +20,7 @@
 #'
 #' @param coast_dir_path Character path to the coastal comparison data directory that contains
 #'   ITF NetCDF inputs and NOAA SLRV URL list inputs, and where outputs will be written.
-#'   Defaults to `"data/all/coast_comp_data"`.
+#'   Defaults to `wava_data_path("all", "coast_comp_data")`.
 #' @param water_supplies An `sf` object of point geometries representing water supply locations.
 #'   Must include a `source_state` column (2-letter state code) used to group downloads/processing.
 #' @param save logical, whether to save the final output GeoPackage. Defaults to TRUE.
@@ -28,10 +28,11 @@
 #'   are always written as they are required for the function to complete.
 #' @param output_dir Directory to save the datasets that will be used as inputs for the
 #'   calculation of inundation exposure.
-process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_comp_data"),
+#' @export
+process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coast_comp_data"),
                                     water_supplies,
                                     save       = TRUE,
-                                    output_dir = here("data", "rapid", "inputs", "coast_comp")) {
+                                    output_dir = wava_data_path("rapid", "inputs", "coast_comp")) {
   
   stopifnot("save is TRUE but output_dir not provided" = !save || !is.null(output_dir))
   
@@ -51,7 +52,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
 
   # Save the buffered water supplies
   sf::st_write(all_buffer_ws,
-               here(coast_dir_path, "altered_water_supplies", "buff_ws.gpkg"), # Buffered water supplies
+               file.path(coast_dir_path, "altered_water_supplies", "buff_ws.gpkg"), # Buffered water supplies
                append = FALSE)
 
   gc()
@@ -82,7 +83,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   ## Generate the complete gridded ITF SLR projections ----
   
-  inundation_projections_path <- here(coast_dir_path, "interagency_report",
+  inundation_projections_path <- file.path(coast_dir_path, "interagency_report",
                                       "Results", "TR_gridded_projections.nc")
   
   # read in nc file as a raster with terra
@@ -109,7 +110,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   # Save the gridded projections as a tif
   terra::writeRaster(final_itf_slr_proj,
-                     here(coast_dir_path, "interagency_report", "generated_products",
+                     file.path(coast_dir_path, "interagency_report", "generated_products",
                           "itf_slr_projections_2050_83rd.tif"),
                      overwrite = TRUE)
   
@@ -135,7 +136,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   # Save the dataset
   sf::st_write(ws_itf_slr_proj,
-               here(coast_dir_path, "altered_water_supplies", "buff_ws_itf_slr_proj.gpkg"), # Buffered water supplies with ITF SLR projections
+               file.path(coast_dir_path, "altered_water_supplies", "buff_ws_itf_slr_proj.gpkg"), # Buffered water supplies with ITF SLR projections
                append = FALSE)
   
   rm(water_supply_inundation_values)
@@ -163,7 +164,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   ## Generate the master inundation dataset URL link dataframe ----
 
   # File path for the compiled master inundation dataset URL text file
-  tif_txt_path <- here(coast_dir_path, "NOAA_SLRV_2022", "ALL_extent_raster_URLlist.txt")
+  tif_txt_path <- file.path(coast_dir_path, "NOAA_SLRV_2022", "ALL_extent_raster_URLlist.txt")
 
   state_codes <- c("AK", "AL", "AS", "CA", "CT", "DC", "DE", "FL", "GA",
                    "GU", "HI", "LA", "MA", "MD", "ME", "MP", "MS", "NC",
@@ -219,7 +220,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
     select(url, file = raw_file, state, inun_region, depth_ft, depth_m, depth_mm) %>%
     filter(!state %in% c("AK", "AS", "HI", "MP", "PR", "VI", "Guam", "CNMI", "USVI"))
   
-  write_csv(tif_df, here(coast_dir_path, "NOAA_SLRV_2022", "ALL_extent_raster_URLlist.csv"))
+  write_csv(tif_df, file.path(coast_dir_path, "NOAA_SLRV_2022", "ALL_extent_raster_URLlist.csv"))
   
   ## Download the reference inundation surface datasets ----
   
@@ -236,22 +237,22 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   ### DOWNLOADING NOAA SURFACE INUNDATION TIF DATASETS HELPER FUNCTION ----
   
-  #' Download NOAA SLRV inundation surface tif data from master URL df
-  #'
-  #' @param tif_url_df df which holds the URLs for inundation surface raster tifs from NOAA SLRV
-  #' @param save_dir Character path to directory where files should be saved
+  # Download NOAA SLRV inundation surface tif data from master URL df
+  #
+  # @param tif_url_df df which holds the URLs for inundation surface raster tifs from NOAA SLRV
+  # @param save_dir Character path to directory where files should be saved
   
   download_NOAA_inun_slr_tif_data <- function(tif_url_df,
-                                              save_dir = here(output_dir, "Extent_Rasters")) {
+                                              save_dir = file.path(output_dir, "Extent_Rasters")) {
     tif_url_df %>%
       pwalk(function(url, file, state, ...) {
         
         # Create state directory if it doesn't exist
-        dest_dir  <- here(save_dir, state)
+        dest_dir  <- file.path(save_dir, state)
         dir.create(dest_dir, recursive = TRUE, showWarnings = FALSE)
         
         # Check if data exists, if it does, skip the download
-        dest_file <- here(save_dir, state, file)
+        dest_file <- file.path(save_dir, state, file)
         
         # Try to download data 3 times
         for (i in 1:3) {
@@ -262,7 +263,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
           }, error = function(e) {
             cat("\nDownload failed (attempt:", i, ") for:", file, "\n")
             Sys.sleep(i)
-            if (i == 3) cat("\n⚠️ All 3 attempts failed for:", file, "\n")
+            if (i == 3) cat("\n\u26a0\ufe0f All 3 attempts failed for:", file, "\n")
           })
         }
         
@@ -273,7 +274,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   # Before we download the data again we are going to clear out the Extent Rasters
   # directory in case there is stale data in it.
-  extent_rasters_dir <- here(output_dir, "Extent_Rasters")
+  extent_rasters_dir <- file.path(output_dir, "Extent_Rasters")
   if (dir.exists(extent_rasters_dir)) {
     unlink(extent_rasters_dir, recursive = TRUE)
   }
@@ -284,7 +285,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
     slice_min(depth_ft)
   
   download_NOAA_inun_slr_tif_data(tif_url_df = reference_tif_df,
-                                  save_dir = here(output_dir, "Extent_Rasters"))
+                                  save_dir = file.path(output_dir, "Extent_Rasters"))
   
   ## Download the scenario inundation surface datasets ----
   
@@ -299,7 +300,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   # surface scenarios.
   
   # Make a list of the file paths of the reference inundation surfaces
-  raster_f <- list.files(path = here(output_dir, "Extent_Rasters"),
+  raster_f <- list.files(path = file.path(output_dir, "Extent_Rasters"),
                          full.names = TRUE,
                          recursive = TRUE)
   
@@ -327,7 +328,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
     distinct()
   
   sf::st_write(inun_region_bboxs,
-               here(coast_dir_path, "NOAA_SLRV_2022", "inundation_data", "inun_region_bboxs.gpkg"),
+               file.path(coast_dir_path, "NOAA_SLRV_2022", "inundation_data", "inun_region_bboxs.gpkg"),
                delete_dsn = TRUE)
   
   # Spatially join buffered water supplies against inundation region bounding boxes.
@@ -374,7 +375,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
     drop_na(url)
   
   download_NOAA_inun_slr_tif_data(tif_url_df = download_tif_df,
-                                  save_dir = here(output_dir, "Extent_Rasters"))
+                                  save_dir = file.path(output_dir, "Extent_Rasters"))
   
   ## Generate the water supply data with the inundation region information ----
   
@@ -405,7 +406,7 @@ process_inundation_data <- function(coast_dir_path = here("data", "all", "coast_
   
   if (save) {
     sf::st_write(updated_ws_inun_proj,
-                 here(output_dir, "buff_ws_inun_regions.gpkg"),
+                 file.path(output_dir, "buff_ws_inun_regions.gpkg"),
                  append = FALSE)
   }
   

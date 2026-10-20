@@ -25,9 +25,10 @@
 #'
 #' @return A tibble with one row per water supply and historical wet-period
 #'   sensitivity indicators.
+#' @export
 calc_wet_period_sensitivity <- function(
     water_supplies,
-    period_data = "data/rapid/inputs/loca_cmip6_precip_periods_water_supplies/",
+    period_data = wava_data_path("rapid", "inputs", "loca_cmip6_precip_periods_water_supplies/"),
     historical,
     save = FALSE,
     output_dir = NULL,

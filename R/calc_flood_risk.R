@@ -15,6 +15,7 @@
 #' @return tibble with water supply ID, park info, and flood sensitivity indicators. Returns 'NA' where FEMA data is not
 #' available, and 0 when it is available but there are no high risk flood zones in the buffer.
 #' 
+#' @export
 calc_flood_risk <-
   function(data,
            dist = 0,

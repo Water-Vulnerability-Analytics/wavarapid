@@ -44,14 +44,15 @@
 #'   GCM/SSP changes. `change_units` identifies whether the changes are
 #'   percent or degrees C.
 #'
+#' @export
 calc_loca2_change_summary <- function(water_supplies,
-                                      data_dirs = c(aet = "data/rapid/inputs/loca2_aet_water_supplies/",
-                                                    pet = "data/rapid/inputs/loca2_pet_water_supplies/",
-                                                    runoff = "data/rapid/inputs/loca2_runoff_water_supplies/",
-                                                    snow = "data/rapid/inputs/loca2_swe_water_supplies/",
-                                                    stor = "data/rapid/inputs/loca2_stor_water_supplies/",
-                                                    precip = "data/rapid/inputs/loca2_precipitation_water_supplies/",
-                                                    temp = "data/rapid/inputs/loca2_temperature_water_supplies/"),
+                                      data_dirs = c(aet = wava_data_path("rapid", "inputs", "loca2_aet_water_supplies/"),
+                                                    pet = wava_data_path("rapid", "inputs", "loca2_pet_water_supplies/"),
+                                                    runoff = wava_data_path("rapid", "inputs", "loca2_runoff_water_supplies/"),
+                                                    snow = wava_data_path("rapid", "inputs", "loca2_swe_water_supplies/"),
+                                                    stor = wava_data_path("rapid", "inputs", "loca2_stor_water_supplies/"),
+                                                    precip = wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/"),
+                                                    temp = wava_data_path("rapid", "inputs", "loca2_temperature_water_supplies/")),
                                       variables = names(data_dirs),
                                       hindcast = TRUE,
                                       historical = c(1980, 2010),

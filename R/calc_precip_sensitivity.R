@@ -7,7 +7,7 @@
 #'
 #' @param water_supplies sf object with water supply locations.
 #' @param precip_data character, directory containing processed LOCA2 MWBM precip files.
-#'   Defaults to `"data/rapid/inputs/loca2_precipitation_water_supplies/"`.
+#'   Defaults to `wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/")`.
 #' @param historical Character vector of length 2 giving the start and end years
 #'   (in `"YYYY"` format) that define the historical period.
 #' @param water_year T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.
@@ -19,8 +19,9 @@
 #' @return tibble with one row per water supply and historical precip sensitivity
 #'   indicators.
 #'
+#' @export
 calc_precip_sensitivity <- function(water_supplies,
-                                    precip_data = "data/rapid/inputs/loca2_precipitation_water_supplies/",
+                                    precip_data = wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/"),
                                     historical,
                                     water_year = TRUE,
                                     save = FALSE,

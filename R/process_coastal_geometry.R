@@ -34,12 +34,13 @@
 #' @return tibble (geometry dropped) with wsd_source_id, park_unit,
 #'   park_name, coast_dist_m, coast_elev_m. 
 #'
+#' @export
 process_coastal_geometry <- function(water_supplies,
-                                     cusp_dir_path = here("data", "all", "coast_comp_data", "NOAA_CUSP"),
+                                     cusp_dir_path = wava_data_path("all", "coast_comp_data", "NOAA_CUSP"),
                                      ncpu = 6,
                                      max_coast_dist_m = 50000,
                                      save = TRUE,
-                                     output_dir = here("data", "rapid", "inputs", "coast_comp"),
+                                     output_dir = wava_data_path("rapid", "inputs", "coast_comp"),
                                      verbose = TRUE) {
   
   # Input validation

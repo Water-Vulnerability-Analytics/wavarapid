@@ -21,10 +21,10 @@
 #'   include `wsd_source_id` and `park_unit`.
 #' @param precip_data Character. Directory containing the processed historical
 #'   precipitation parquet file. Defaults to
-#'   `"data/rapid/inputs/loca2_precipitation_water_supplies/"`.
+#'   `wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/")`.
 #' @param pet_data Character. Directory containing the processed historical PET
 #'   parquet file. Defaults to
-#'   `"data/rapid/inputs/loca2_pet_water_supplies/"`.
+#'   `wava_data_path("rapid", "inputs", "loca2_pet_water_supplies/")`.
 #' @param spei_scale Positive integer. Accumulation scale in months passed to
 #'   `SPEI::spei()`. Default is `12`.
 #' @param spei_inf_cap Numeric. Absolute cap used to replace `Inf` and `-Inf`
@@ -42,9 +42,10 @@
 #' @return A tibble with one row per water supply and historical drought
 #'   sensitivity indicators.
 #'
+#' @export
 calc_drought_sensitivity <- function(water_supplies,
-                                     precip_data = "data/rapid/inputs/loca2_precipitation_water_supplies/",
-                                     pet_data = "data/rapid/inputs/loca2_pet_water_supplies/",
+                                     precip_data = wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/"),
+                                     pet_data = wava_data_path("rapid", "inputs", "loca2_pet_water_supplies/"),
                                      spei_scale = 12,
                                      spei_inf_cap = 4,
                                      drought_threshold = -1,

@@ -7,7 +7,7 @@
 #'
 #' @param water_supplies sf object with water supply locations.
 #' @param runoff_data character, directory containing processed LOCA2 MWBM runoff files.
-#'   Defaults to `"data/rapid/inputs/loca2_runoff_water_supplies/"`.
+#'   Defaults to `wava_data_path("rapid", "inputs", "loca2_runoff_water_supplies/")`.
 #' @param historical Character vector of length 2 giving the start and end years
 #'   (in `"YYYY"` format) that define the historical period.
 #' @param water_year T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.
@@ -19,8 +19,9 @@
 #' @return tibble with one row per water supply and historical runoff sensitivity
 #'   indicators.
 #'
+#' @export
 calc_runoff_sensitivity <- function(water_supplies,
-                                    runoff_data = "data/rapid/inputs/loca2_runoff_water_supplies/",
+                                    runoff_data = wava_data_path("rapid", "inputs", "loca2_runoff_water_supplies/"),
                                     historical,
                                     water_year = TRUE,
                                     save = FALSE,

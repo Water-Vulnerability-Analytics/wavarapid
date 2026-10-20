@@ -47,10 +47,10 @@
 #'   `park_name`, `water_stress_label` (Aqueduct category), and raw/norm/rank
 #'   columns for `raw_water_stress` (baseline score 0-5, not inverted)
 #'
+#' @export
 calc_waterrights_sensitivity <- function(
     water_supplies,
-    stress_data = here("data",
-                       "rapid",
+    stress_data = wava_data_path("rapid",
                        "inputs",
                        "WaterRightsIndicator",
                        "waterrights_stress_long.csv"),
@@ -75,7 +75,7 @@ calc_waterrights_sensitivity <- function(
   # Load the long stress table if a file path was given
   if (is.character(stress_data)) {
     stopifnot(
-      "stress_data path does not exist — run process_waterrightsindicator_data() first" =
+      "stress_data path does not exist \u2014 run process_waterrightsindicator_data() first" =
         file.exists(stress_data)
     )
     stress_data <- read_csv(stress_data, show_col_types = FALSE)
@@ -93,7 +93,7 @@ calc_waterrights_sensitivity <- function(
   stress_ids <- unique(stress_data$wsd_source_id)
 
   stopifnot(
-    "wsd_source_id in stress_data does not match water_supplies — rerun process_waterrightsindicator_data() with this water_supplies object" =
+    "wsd_source_id in stress_data does not match water_supplies \u2014 rerun process_waterrightsindicator_data() with this water_supplies object" =
       setequal(ws_ids, stress_ids)
   )
   

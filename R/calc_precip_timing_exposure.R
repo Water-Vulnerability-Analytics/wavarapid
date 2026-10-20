@@ -47,8 +47,9 @@
 #' Dettinger, M.D., & Cayan, D.R. (1995). Large-scale atmospheric forcing of
 #'   recent trends toward early snowmelt runoff in California. J. Climate, 8,
 #'   606-623.
+#' @export
 calc_precip_timing_exposure <- function(water_supplies,
-                                        precip_data = "data/rapid/inputs/loca2_precipitation_water_supplies/",
+                                        precip_data = wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/"),
                                         hindcast = TRUE,
                                         historical,
                                         future,

@@ -13,6 +13,7 @@
 #' 
 #' @return tibble with water supply ID, park info, and fire exposure indicators
 #' 
+#' @export
 calc_fire_exposure <- function(water_supplies,
                                fire_prob_data,
                                pyrome_data,

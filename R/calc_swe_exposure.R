@@ -15,8 +15,9 @@
 #'
 #' @return tibble with water supply ID, park info, and SWE exposure indicators
 #'
+#' @export
 calc_swe_exposure <- function(water_supplies,
-                              swe_data = "data/rapid/inputs/loca2_swe_water_supplies/",
+                              swe_data = wava_data_path("rapid", "inputs", "loca2_swe_water_supplies/"),
                               hindcast = TRUE,
                               historical,
                               future,

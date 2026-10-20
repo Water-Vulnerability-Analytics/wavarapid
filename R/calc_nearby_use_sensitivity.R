@@ -20,8 +20,9 @@
 #'   file, or any month or expected plant is unreported. There is no
 #'   data_status column, as every gap here is a historical one. Gaps are left
 #'   NA rather than treated as zero use.
+#' @export
 calc_nearby_use_sensitivity <- function(water_supplies,
-                                        data_dir = "data/Latest county-level data/water_demand_projections",
+                                        data_dir = wava_data_path("Latest county-level data", "water_demand_projections"),
                                         save = FALSE,
                                         output_dir = NULL,
                                         verbose = TRUE,

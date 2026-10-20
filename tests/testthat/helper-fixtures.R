@@ -1,8 +1,7 @@
-# Shared fixtures for the rapid_app tests.
+# Shared test fixtures.
 #
 # testthat sources every helper-*.R file before running the tests, so
-# make_fake_supplies() is available to all test files without an explicit
-# source() call.
+# make_fake_supplies() is available to all test files.
 
 #' Build a synthetic water-supply table for calc_vulnerability_index()
 #'

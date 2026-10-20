@@ -36,7 +36,7 @@
 #'   in this directory is read.
 #' @param save logical, whether to save output GeoPackage. Defaults to TRUE.
 #' @param output_dir character, directory path where the GeoPackage will be saved.
-#'   Required when `save = TRUE`. Defaults to `here("data", "rapid", "inputs", "storm_surge")`.
+#'   Required when `save = TRUE`. Defaults to `wava_data_path("rapid", "inputs", "storm_surge")`.
 #' @param verbose logical, whether to show progress messages. Defaults to TRUE.
 #'
 #' @return sf object (EPSG:4326) of storm surge stations, one row per
@@ -45,9 +45,10 @@
 #'   (1985-2014), and `future_p05`/`future_mean`/`future_p95` (2021-2050), all
 #'   in meters
 #'
+#' @export
 process_storm_surge_data <- function(data_dir,
                                      save = TRUE,
-                                     output_dir = here("data", "rapid", "inputs", "storm_surge"),
+                                     output_dir = wava_data_path("rapid", "inputs", "storm_surge"),
                                      verbose = TRUE) {
   
   # Input validation

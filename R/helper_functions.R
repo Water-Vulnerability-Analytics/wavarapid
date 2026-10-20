@@ -8,6 +8,7 @@
 #'   higher raw values correspond to lower normalized and ranked scores.
 #' @return tibble with added norm_ and rank_ columns
 #' 
+#' @export
 add_standardized_indicators <- function(data, prefix, invert = FALSE) {
   # Get columns that match the prefix
   cols_to_transform <- names(data)[str_starts(names(data), prefix)]

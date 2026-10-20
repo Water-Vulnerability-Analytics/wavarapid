@@ -16,8 +16,9 @@
 #'
 #' @return tibble with water supply ID, park info, and precipitation exposure indicators
 #'
+#' @export
 calc_precip_exposure <- function(water_supplies,
-                                 precip_data = "data/rapid/inputs/loca2_precipitation_water_supplies/",
+                                 precip_data = wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/"),
                                  hindcast = TRUE,
                                  historical,
                                  future,

@@ -17,7 +17,7 @@
 #' @param water_supplies sf object with water supply point locations. Must
 #'   contain columns `wsd_source_id`, `park_unit`, and `park_name`.
 #' @param swi_pts Saltwater intrusion points. Character path to swi_points.gpkg produced by
-#'   `process_swi_data()`. Defaults to `here("data", "rapid", "inputs", "swi", "swi_points.gpkg")`.
+#'   `process_swi_data()`. Defaults to `wava_data_path("rapid", "inputs", "swi", "swi_points.gpkg")`.
 #' @param coast_distances character path to coastal_site_geometry.csv
 #'   produced by `process_coastal_geometry()` (only `coast_dist_m` is used
 #'   here; `coast_elev_m` is dropped after the join).
@@ -31,10 +31,11 @@
 #'   `raw_swi_migration` (Case_C in meters; NA if > 50 km from any SWI point),
 #'   `norm_swi_migration`, `rank_swi_migration`
 #'
+#' @export
 calc_swi_exposure <- function(
     water_supplies,
-    swi_pts    = here("data", "rapid", "inputs", "swi", "swi_points.gpkg"),
-    coast_distances = here("data", "rapid", "inputs", "coast_comp", "coastal_site_geometry.csv"),
+    swi_pts    = wava_data_path("rapid", "inputs", "swi", "swi_points.gpkg"),
+    coast_distances = wava_data_path("rapid", "inputs", "coast_comp", "coastal_site_geometry.csv"),
     save       = FALSE,
     output_dir = NULL,
     verbose    = TRUE) {
@@ -53,7 +54,7 @@ calc_swi_exposure <- function(
 
   # Load SWI points 
   if (!inherits(swi_pts, "sf")) {
-    stopifnot("swi_pts path does not exist — run process_swi_data() first" = file.exists(swi_pts))
+    stopifnot("swi_pts path does not exist \u2014 run process_swi_data() first" = file.exists(swi_pts))
     if (verbose) message("Loading SWI points ...")
     swi_pts <- st_read(swi_pts, quiet = !verbose)
   }

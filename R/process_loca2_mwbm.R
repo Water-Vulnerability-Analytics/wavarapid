@@ -1,6 +1,6 @@
 #' Process NetCDF files for LOCA2 water balance data extraction
 #'
-#' @param nc_path path to NetCDF files - found in "data/all/loca2_mwbm/"
+#' @param nc_path path to NetCDF files - found in wava_data_path("all", "loca2_mwbm/")
 #' @param water_supplies sf object with point locations
 #' @param var character, variable name to extract. Supported values include
 #'   `"aet"`, `"deficit"`, `"pet"`, `"runoff"`, `"snow"`/`"swe"`,
@@ -16,6 +16,7 @@
 #'   neighborhood contains no finite values are recentered on the nearest grid
 #'   cell with finite data within 50 km. Defaults to `FALSE`.
 #'
+#' @export
 process_loca2_mwbm <- function(nc_path,
                                water_supplies,
                                var,
