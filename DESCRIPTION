@@ -1,0 +1,53 @@
+Package: wavarapid
+Title: Rapid Water Supply Vulnerability Indicators for NPS Units
+Version: 0.1.0
+Authors@R: c(
+    person("Caitlin", "Mothes", role = "aut",
+           email = "Caitlin.Mothes@colostate.edu"),
+    person("Katie", "Willi", role = "aut",
+           email = "Kathryn.Willi@colostate.edu"),
+    person("Juan", "De La Torre", role = c("cre", "aut"),
+           email = "juan.delatorre@colostate.edu"),
+    person("Cibi Vishnu", "Chinnasamy", role = "aut",
+           email = "Cibi.Chinnasamy@colostate.edu"))
+Description: Indicator functions for the rapid, nationwide water supply
+    vulnerability assessment of National Park Service units. Each indicator
+    has an exposure and/or sensitivity function, and the vulnerability index
+    combines them. Used to prepare the data for the WSVA app.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+URL: https://github.com/Water-Vulnerability-Analytics/wavarapid
+BugReports: https://github.com/Water-Vulnerability-Analytics/wavarapid/issues
+Remotes: Water-Vulnerability-Analytics/wavacore
+Config/roxygen2/version: 8.0.0
+Imports: 
+    arrow,
+    data.table,
+    dplyr,
+    elevatr,
+    exactextractr,
+    furrr,
+    future,
+    geosphere,
+    lubridate,
+    ncdf4,
+    nngeo,
+    progress,
+    purrr,
+    readr,
+    scales,
+    sf,
+    SPEI,
+    stats,
+    stringr,
+    terra,
+    tibble,
+    tidyr,
+    tigris,
+    tools,
+    trend,
+    wavacore
+Suggests: 
+    testthat
+Config/testthat/edition: 3
