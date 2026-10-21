@@ -6,8 +6,8 @@
 \usage{
 calc_swi_exposure(
   water_supplies,
-  swi_pts = wava_data_path("rapid", "inputs", "swi", "swi_points.gpkg"),
-  coast_distances = wava_data_path("rapid", "inputs", "coast_comp",
+  swi_pts = wavacore::wava_data_path("rapid", "inputs", "swi", "swi_points.gpkg"),
+  coast_distances = wavacore::wava_data_path("rapid", "inputs", "coast_comp",
     "coastal_site_geometry.csv"),
   save = FALSE,
   output_dir = NULL,

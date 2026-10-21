@@ -6,8 +6,9 @@
 \usage{
 calc_wta_sensitivity(
   water_supplies,
-  data_dir = wava_data_path("Latest county-level data", "water_demand_projections"),
-  watersheds = wava_data_path("all", "WBD_National_GDB.gdb"),
+  data_dir = wavacore::wava_data_path("Latest county-level data",
+    "water_demand_projections"),
+  watersheds = wavacore::wava_data_path("all", "WBD_National_GDB.gdb"),
   huc_level = 8L,
   max_watershed_distance_km = 5,
   save = FALSE,

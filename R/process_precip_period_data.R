@@ -21,7 +21,7 @@
 process_precip_period_data <- function(
     nc_path,
     water_supplies,
-    output_dir = wava_data_path("rapid", "inputs", "loca_cmip6_precip_periods_water_supplies/"),
+    output_dir = wavacore::wava_data_path("rapid", "inputs", "loca_cmip6_precip_periods_water_supplies/"),
     overwrite = FALSE,
     verbose = TRUE) {
 

@@ -21,7 +21,7 @@
 #'
 #' @export
 calc_runoff_sensitivity <- function(water_supplies,
-                                    runoff_data = wava_data_path("rapid", "inputs", "loca2_runoff_water_supplies/"),
+                                    runoff_data = wavacore::wava_data_path("rapid", "inputs", "loca2_runoff_water_supplies/"),
                                     historical,
                                     water_year = TRUE,
                                     save = FALSE,
@@ -64,9 +64,9 @@ calc_runoff_sensitivity <- function(water_supplies,
   
     data.table::as.data.table(raw)[
       ,  year := if (water_year) {
-        year(date) + fifelse(month(date) >= 10, 1L, 0L)
+        lubridate::year(date) + data.table::fifelse(lubridate::month(date) >= 10, 1L, 0L)
       } else {
-        year(date)
+        lubridate::year(date)
       }
     ][
       year >= hist_start_year & year <= hist_end_year
@@ -105,21 +105,21 @@ calc_runoff_sensitivity <- function(water_supplies,
     dplyr::summarize(raw_avg_runoff = mean(total_runoff, na.rm = TRUE),
                      data = list(dplyr::pick(dplyr::everything())),
                      .groups = "drop") %>%
-    mutate(n_years = map_int(data, ~ sum(!is.na(.x$total_runoff))),
-           sen = map(data, ~ {
+    dplyr::mutate(n_years = purrr::map_int(data, ~ sum(!is.na(.x$total_runoff))),
+           sen = purrr::map(data, ~ {
              x <- .x$total_runoff
-             if (sum(!is.na(x)) >= 3) sens.slope(x) else NULL
+             if (sum(!is.na(x)) >= 3) trend::sens.slope(x) else NULL
            }),
-           mk = map(data, ~ {
+           mk = purrr::map(data, ~ {
              x <- .x$total_runoff
-             if (sum(!is.na(x)) >= 3) mk.test(x) else NULL
+             if (sum(!is.na(x)) >= 3) trend::mk.test(x) else NULL
            }),
-           raw_slope_runoff = map_dbl(sen, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
-           mk_tau = map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
-           mk_p_value = map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$p.value),
+           raw_slope_runoff = purrr::map_dbl(sen, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
+           mk_tau = purrr::map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$estimates[[1]]),
+           mk_p_value = purrr::map_dbl(mk, ~ if (is.null(.x)) NA_real_ else .x$p.value),
            mk_significant = mk_p_value < 0.05) %>%
-    select(-data, -sen, -mk, -mk_p_value, -mk_tau) %>%
-    mutate(trend_direction = case_when(is.na(raw_slope_runoff) ~ NA_character_,
+    dplyr::select(-data, -sen, -mk, -mk_p_value, -mk_tau) %>%
+    dplyr::mutate(trend_direction = dplyr::case_when(is.na(raw_slope_runoff) ~ NA_character_,
                                        raw_slope_runoff > 0 ~ "increasing",
                                        raw_slope_runoff < 0 ~ "decreasing",
                                        TRUE ~ "no change"),
@@ -131,7 +131,7 @@ calc_runoff_sensitivity <- function(water_supplies,
     add_standardized_indicators("raw_avg_runoff", invert = TRUE) %>%
     add_standardized_indicators("raw_percent_slope_runoff", invert = TRUE) %>%
     # reorder columns following standardized pattern
-    select(wsd_source_id, park_unit, everything())
+    dplyr::select(wsd_source_id, park_unit, dplyr::everything())
   
   if (save) {
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)

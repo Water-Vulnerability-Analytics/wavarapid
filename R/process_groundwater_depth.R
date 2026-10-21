@@ -38,12 +38,12 @@
 #' @export
 process_groundwater_depth <- function(
     water_supplies,
-    wtd_path       = wava_data_path("all", "groundwater_sensitivity",
+    wtd_path       = wavacore::wava_data_path("all", "groundwater_sensitivity",
                            "wtd_mean_estimate_RF_additional_inputs_dummy_drop0LP_1s_CONUS2_m_v_20240813.tif"),
     start_buffer_m = 500,
     max_buffer_m   = 50000,
     save           = FALSE,
-    output_dir     = wava_data_path("rapid", "inputs", "groundwater_depth"),
+    output_dir     = wavacore::wava_data_path("rapid", "inputs", "groundwater_depth"),
     verbose        = TRUE) {
 
   stopifnot(
@@ -147,7 +147,7 @@ process_groundwater_depth <- function(
   
   if (save) {
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
-    write.csv(wtd_all_sites, file.path(output_dir, "wtd_all_sites.csv"), row.names = FALSE)
+    utils::write.csv(wtd_all_sites, file.path(output_dir, "wtd_all_sites.csv"), row.names = FALSE)
   }
   
   if (verbose) {

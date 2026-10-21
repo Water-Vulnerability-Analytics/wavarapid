@@ -7,7 +7,7 @@
 calc_storm_surge_sensitivity(
   water_supplies,
   storm_surge_stations,
-  coast_geometry = wava_data_path("rapid", "inputs", "coast_comp",
+  coast_geometry = wavacore::wava_data_path("rapid", "inputs", "coast_comp",
     "coastal_site_geometry.csv"),
   save = FALSE,
   output_dir = NULL,

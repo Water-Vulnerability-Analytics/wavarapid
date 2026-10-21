@@ -62,7 +62,7 @@ calc_groundwater_depth_sensitivity <- function(water_supplies,
 
   # Load pre-processed modeled WTD if a file path was given
   if (is.character(groundwater_data)) {
-    groundwater_data <- read_csv(groundwater_data, show_col_types = FALSE)
+    groundwater_data <- readr::read_csv(groundwater_data, show_col_types = FALSE)
   }
 
   # Score all water supplies. Groundwater/spring source types get a depth
@@ -87,7 +87,7 @@ calc_groundwater_depth_sensitivity <- function(water_supplies,
     ) %>%
     dplyr::mutate(
       is_gw_spring = grepl("groundwater|spring", source_type),
-      well_depth_m = if_else((well_depth * 0.8 * 0.3048) >= 200, 200, (well_depth * 0.8 * 0.3048)),
+      well_depth_m = dplyr::if_else((well_depth * 0.8 * 0.3048) >= 200, 200, (well_depth * 0.8 * 0.3048)),
       raw_groundwater_depth_m = dplyr::case_when(
         !is_gw_spring              ~ 0,
         !is.na(well_depth_m)       ~ well_depth_m,
@@ -107,13 +107,13 @@ calc_groundwater_depth_sensitivity <- function(water_supplies,
   # Bin the raw depth into a DRASTIC-style sensitivity score, then standardize
   # both the raw depth and the bin score separately
   final_results <- results %>%
-    mutate(raw_groundwater_depth_bin = case_when(
-      between(raw_groundwater_depth_m, 0, 1.5) ~ 1,
-      between(raw_groundwater_depth_m, 1.5, 4.5) ~ .9,
-      between(raw_groundwater_depth_m, 4.5, 9.1) ~ .7,
-      between(raw_groundwater_depth_m, 9.1, 15.2) ~ .5,
-      between(raw_groundwater_depth_m, 15.2, 22.9) ~ .3,
-      between(raw_groundwater_depth_m, 22.9, 30.5) ~ .2,
+    dplyr::mutate(raw_groundwater_depth_bin = dplyr::case_when(
+      dplyr::between(raw_groundwater_depth_m, 0, 1.5) ~ 1,
+      dplyr::between(raw_groundwater_depth_m, 1.5, 4.5) ~ .9,
+      dplyr::between(raw_groundwater_depth_m, 4.5, 9.1) ~ .7,
+      dplyr::between(raw_groundwater_depth_m, 9.1, 15.2) ~ .5,
+      dplyr::between(raw_groundwater_depth_m, 15.2, 22.9) ~ .3,
+      dplyr::between(raw_groundwater_depth_m, 22.9, 30.5) ~ .2,
       raw_groundwater_depth_m >= 30.5 ~ .1,
       .default = NA
     )) %>%
@@ -125,7 +125,7 @@ calc_groundwater_depth_sensitivity <- function(water_supplies,
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
     filename <- file.path(output_dir, paste0("groundwater_depth_sensitivity_", Sys.Date(), ".csv"))
-    write_csv(final_results, filename)
+    readr::write_csv(final_results, filename)
 
     if (verbose) {
       message("Results saved to: ", filename)

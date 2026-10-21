@@ -6,7 +6,8 @@
 \usage{
 calc_runoff_exposure(
   water_supplies,
-  runoff_data = wava_data_path("rapid", "inputs", "loca2_runoff_water_supplies/"),
+  runoff_data = wavacore::wava_data_path("rapid", "inputs",
+    "loca2_runoff_water_supplies/"),
   hindcast = TRUE,
   historical,
   future,

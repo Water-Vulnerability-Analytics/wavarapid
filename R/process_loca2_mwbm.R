@@ -53,8 +53,8 @@ process_loca2_mwbm <- function(nc_path,
   start_clock_time <- Sys.time()
   
   # open using ncdf4 package and ensure it is always closed on exit
-  nc <- nc_open(nc_path)
-  on.exit(nc_close(nc), add = TRUE)
+  nc <- ncdf4::nc_open(nc_path)
+  on.exit(ncdf4::nc_close(nc), add = TRUE)
   
   # Some files use different internal NetCDF variable names for the same
   # user-facing variable. Keep the original var label for later output and
@@ -93,24 +93,24 @@ process_loca2_mwbm <- function(nc_path,
   
   # grab layer of user-selected variable
   v <- nc$var[[nc_var]]
-  lon <- ncvar_get(nc, "lon")
-  lat <- ncvar_get(nc, "lat")
+  lon <- ncdf4::ncvar_get(nc, "lon")
+  lat <- ncdf4::ncvar_get(nc, "lat")
   
   # If longitudes are 0-360, convert to -180-180
   # Alder training historical data is in 0-360 whereas others are not...
   if (any(lon > 180)) lon <- ifelse(lon > 180, lon - 360, lon)
   
   # transform water_supplies to nc coordinate system if not already
-  if (st_crs(water_supplies) != st_crs(rast(nc_path))) {
-    water_supplies <- st_transform(water_supplies, st_crs(rast(nc_path)))
+  if (sf::st_crs(water_supplies) != sf::st_crs(terra::rast(nc_path))) {
+    water_supplies <- sf::st_transform(water_supplies, sf::st_crs(terra::rast(nc_path)))
   }
   
   # get time units
   # Some Livneh precipitation files use capitalized Time instead of time.
   time_seq <- if(nc_var == "PRCP") {
-    ncvar_get(nc, "Time")
+    ncdf4::ncvar_get(nc, "Time")
   } else {
-    ncvar_get(nc, "time")
+    ncdf4::ncvar_get(nc, "time")
   }
   
   # Pull the matching time-unit metadata so numeric time values can be
@@ -126,7 +126,7 @@ process_loca2_mwbm <- function(nc_path,
   )
   
   # get mwbm units
-  mwbm_units <- ncatt_get(nc, nc_var, "units")$value
+  mwbm_units <- ncdf4::ncatt_get(nc, nc_var, "units")$value
   
   # Filter time indices based on units
   time_indices_to_keep <- seq_along(time_seq)
@@ -160,13 +160,13 @@ process_loca2_mwbm <- function(nc_path,
   nt <- length(time_seq)
   
   # convert sf water_supplies to terra vect object and extract coordinates
-  v_pts <- vect(water_supplies)
-  xy <- crds(v_pts)
+  v_pts <- terra::vect(water_supplies)
+  xy <- terra::crds(v_pts)
   
   # Convert point coordinates to array indices by finding the nearest NetCDF
   # grid-cell center for each water supply.
-  lon_index <- map_int(xy[, 1], ~ which.min(abs(lon - .x)))
-  lat_index <- map_int(xy[, 2], ~ which.min(abs(lat - .x)))
+  lon_index <- purrr::map_int(xy[, 1], ~ which.min(abs(lon - .x)))
+  lat_index <- purrr::map_int(xy[, 2], ~ which.min(abs(lat - .x)))
   center_indices <- cbind(lon_index = lon_index, lat_index = lat_index)
   
   # Build a 3x3 neighborhood around each nearest grid cell
@@ -191,19 +191,19 @@ process_loca2_mwbm <- function(nc_path,
     )
   }
   
-  neighbor_list <- bind_rows(neighbor_list) %>%
+  neighbor_list <- dplyr::bind_rows(neighbor_list) %>%
     # Clamping at raster edges can map multiple offsets to the same cell.
     # Keep each available grid cell once rather than weighting edge cells twice.
-    distinct(point_id, lon_index, lat_index, .keep_all = TRUE) %>%
+    dplyr::distinct(point_id, lon_index, lat_index, .keep_all = TRUE) %>%
     # Add actual geographic coordinates for each neighborhood cell.
-    mutate(
+    dplyr::mutate(
       cell_lon = lon[lon_index],
       cell_lat = lat[lat_index]
     )
   
   # Extract dimension names and sizes from the selected NetCDF variable.
-  dnames <- map_chr(v$dim, "name")
-  dsizes <- map_int(v$dim, "len")
+  dnames <- purrr::map_chr(v$dim, "name")
+  dsizes <- purrr::map_int(v$dim, "len")
   
   # Identify time dimension by looking for "time" in dimension names.
   time_dim <- which(grepl("time", dnames, ignore.case = TRUE))
@@ -251,7 +251,7 @@ process_loca2_mwbm <- function(nc_path,
           count[time_dim] <- file_count
         }
 
-        arr <- ncvar_get(
+        arr <- ncdf4::ncvar_get(
           nc,
           nc_var,
           start = start,
@@ -300,7 +300,7 @@ process_loca2_mwbm <- function(nc_path,
     missing_point_ids <- which(!point_has_data)
 
     if (length(missing_point_ids) > 0) {
-      search_cells <- bind_rows(lapply(missing_point_ids, function(point_id) {
+      search_cells <- dplyr::bind_rows(lapply(missing_point_ids, function(point_id) {
         point_lon <- xy[point_id, 1]
         point_lat <- xy[point_id, 2]
         lat_buffer <- 50 / 111.32
@@ -328,13 +328,13 @@ process_loca2_mwbm <- function(nc_path,
         search_values <- extract_cells(search_cells)
         search_cells$has_data <- rowSums(is.finite(search_values)) > 0
         nearest_centers <- search_cells %>%
-          filter(has_data) %>%
-          group_by(point_id) %>%
-          slice_min(distance_m, n = 1, with_ties = FALSE) %>%
-          ungroup()
+          dplyr::filter(has_data) %>%
+          dplyr::group_by(point_id) %>%
+          dplyr::slice_min(distance_m, n = 1, with_ties = FALSE) %>%
+          dplyr::ungroup()
 
         if (nrow(nearest_centers) > 0) {
-          fallback_neighbors <- bind_rows(lapply(seq_len(nrow(nearest_centers)), function(i) {
+          fallback_neighbors <- dplyr::bind_rows(lapply(seq_len(nrow(nearest_centers)), function(i) {
             point_id <- nearest_centers$point_id[i]
             center_lon <- nearest_centers$lon_index[i]
             center_lat <- nearest_centers$lat_index[i]
@@ -344,8 +344,8 @@ process_loca2_mwbm <- function(nc_path,
               lat_index = pmax(1, pmin(length(lat), center_lat + offsets$lat_offset))
             )
           })) %>%
-            distinct(point_id, lon_index, lat_index, .keep_all = TRUE) %>%
-            mutate(
+            dplyr::distinct(point_id, lon_index, lat_index, .keep_all = TRUE) %>%
+            dplyr::mutate(
               cell_lon = lon[lon_index],
               cell_lat = lat[lat_index]
             )
@@ -353,7 +353,7 @@ process_loca2_mwbm <- function(nc_path,
           fallback_values <- extract_cells(fallback_neighbors)
           replace_point_ids <- unique(fallback_neighbors$point_id)
           keep_original <- !neighbor_list$point_id %in% replace_point_ids
-          neighbor_list <- bind_rows(
+          neighbor_list <- dplyr::bind_rows(
             neighbor_list[keep_original, , drop = FALSE],
             fallback_neighbors
           )
@@ -377,16 +377,16 @@ process_loca2_mwbm <- function(nc_path,
   
   # Convert the neighborhood lookup to data.table and add extraction IDs for
   # joining extracted values back to grid-cell metadata.
-  neighbor_dt <- as.data.table(neighbor_list)
+  neighbor_dt <- data.table::as.data.table(neighbor_list)
   neighbor_dt[, extraction_id := .I]
   
   # Extract point attributes (non-spatial data) for joining back to results.
-  pts_attr <- as.data.table(sf::st_drop_geometry(water_supplies))
+  pts_attr <- data.table::as.data.table(sf::st_drop_geometry(water_supplies))
   pts_attr[, point_id := .I]
   
   # Convert matrix results to long format. as.vector(result_matrix) unrolls the
   # matrix by column, so extraction IDs repeat for each time step.
-  results_dt <- data.table(
+  results_dt <- data.table::data.table(
     extraction_id = rep.int(seq_len(n_extractions), times = nt),
     time_index = rep(seq_len(nt), each = n_extractions),
     value = as.vector(result_matrix)
@@ -431,7 +431,7 @@ process_loca2_mwbm <- function(nc_path,
     results_dt[, days_in_month := lubridate::days_in_month(ym)]
     
     results_dt <- results_dt %>%
-      mutate(value = value * 86400 * days_in_month)
+      dplyr::mutate(value = value * 86400 * days_in_month)
     
   } else if(mwbm_units == "K"){
     
@@ -439,7 +439,7 @@ process_loca2_mwbm <- function(nc_path,
     message(mwbm_units)
     
     results_dt <- results_dt %>%
-      mutate(value = value - 273.15)
+      dplyr::mutate(value = value - 273.15)
     
   }
   
@@ -478,7 +478,7 @@ process_loca2_mwbm <- function(nc_path,
     output_path <- file.path(output_dir, paste0(basename(nc_path), ".parquet"))
   }
   
-  write_parquet(results_dt, output_path)
+  arrow::write_parquet(results_dt, output_path)
   
   end_clock_time <- Sys.time()
   

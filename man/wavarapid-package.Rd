@@ -27,5 +27,10 @@ Authors:
   \item Cibi Vishnu Chinnasamy \email{Cibi.Chinnasamy@colostate.edu}
 }
 
+Other contributors:
+\itemize{
+  \item ROSS - Radical Open Science Syndicate and all contributors [copyright holder]
+}
+
 }
 \keyword{internal}

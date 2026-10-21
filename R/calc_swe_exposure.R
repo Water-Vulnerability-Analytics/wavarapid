@@ -17,7 +17,7 @@
 #'
 #' @export
 calc_swe_exposure <- function(water_supplies,
-                              swe_data = wava_data_path("rapid", "inputs", "loca2_swe_water_supplies/"),
+                              swe_data = wavacore::wava_data_path("rapid", "inputs", "loca2_swe_water_supplies/"),
                               hindcast = TRUE,
                               historical,
                               future,
@@ -76,15 +76,15 @@ calc_swe_exposure <- function(water_supplies,
   # grids and times
   process_raw_grid_data <- function(f) {
     
-    raw <- read_parquet(f) %>%
+    raw <- arrow::read_parquet(f) %>%
       dplyr::filter(wsd_source_id %in% water_supplies$wsd_source_id)
     
     # grabs year (or water year if water_year = TRUE)
-    annual_points <- as.data.table(raw)[
+    annual_points <- data.table::as.data.table(raw)[
       ,      year := if (water_year) {
-        year(date) + fifelse(month(date) >= 10, 1L, 0L)
+        lubridate::year(date) + data.table::fifelse(lubridate::month(date) >= 10, 1L, 0L)
       } else {
-        year(date)
+        lubridate::year(date)
       }
     ][
       # Use the extracted year boundaries from function arguments
@@ -113,12 +113,12 @@ calc_swe_exposure <- function(water_supplies,
   }
   
   # Process the extracted data files with progress bar
-  mean_data <- map(files, ~{
+  mean_data <- purrr::map(files, ~{
     if (verbose) pb$tick(tokens = list(what = "Processing files"))
     process_raw_grid_data(.x)
   })
   
-  combined_data <- mean_data %>% bind_rows()
+  combined_data <- mean_data %>% dplyr::bind_rows()
   
   suppressMessages({suppressWarnings({
     # fix specific filename pattern from Jay's data
@@ -129,12 +129,12 @@ calc_swe_exposure <- function(water_supplies,
     
     # parse filename components
     combined_data[
-      , c("var", "model", "ssp", "run", "nc") := tstrsplit(nc_file, "\\.")
+      , c("var", "model", "ssp", "run", "nc") := data.table::tstrsplit(nc_file, "\\.")
     ]
     
     # Split run/time if present
     combined_data[
-      !is.na(run), c("run", "time") := tstrsplit(run, "_", fixed = TRUE)
+      !is.na(run), c("run", "time") := data.table::tstrsplit(run, "_", fixed = TRUE)
     ]
   })})
   
@@ -145,8 +145,8 @@ calc_swe_exposure <- function(water_supplies,
     
     # distinct (model, scenario) pairs that exist in the past and future
     ssps <- combined_data %>%
-      filter(time != "1950-2014") %>%
-      distinct(model, ssp, run)
+      dplyr::filter(time != "1950-2014") %>%
+      dplyr::distinct(model, ssp, run)
     
     swe_change_sub <- vector("list", length = nrow(ssps))
     
@@ -155,51 +155,51 @@ calc_swe_exposure <- function(water_supplies,
       ssp_sub <- ssps[i,]
       
       hindcast_historical <- combined_data %>%
-        filter(model == ssp_sub$model,
+        dplyr::filter(model == ssp_sub$model,
                ssp == "historical",
                run == ssp_sub$run) %>%
-        filter(year >= hist_start_year & year <= hist_end_year)
+        dplyr::filter(year >= hist_start_year & year <= hist_end_year)
       
       hindcast_future <- combined_data %>%
-        filter(model == ssp_sub$model,
+        dplyr::filter(model == ssp_sub$model,
                ssp == ssp_sub$ssp,
                run == ssp_sub$run) %>%
-        filter(year >= hist_start_year & year <= hist_end_year)
+        dplyr::filter(year >= hist_start_year & year <= hist_end_year)
       
       historical_complete <- hindcast_historical %>%
-        bind_rows(hindcast_future) %>%
-        group_by(wsd_source_id, park_unit) %>%
-        summarize(swe_historical = mean(max_swe, na.rm = TRUE),
+        dplyr::bind_rows(hindcast_future) %>%
+        dplyr::group_by(wsd_source_id, park_unit) %>%
+        dplyr::summarize(swe_historical = mean(max_swe, na.rm = TRUE),
                   range_historical = paste0(min(year), "-", max(year)),
                   .groups = "drop")
       
       future_complete <- combined_data %>% 
-        filter(model == ssp_sub$model,
+        dplyr::filter(model == ssp_sub$model,
                ssp == ssp_sub$ssp,
                run == ssp_sub$run) %>%
-        filter(year >= future_start_year & year <= future_end_year) %>%
-        group_by(wsd_source_id, park_unit) %>%
-        summarize(swe_future = mean(max_swe, na.rm = TRUE),
+        dplyr::filter(year >= future_start_year & year <= future_end_year) %>%
+        dplyr::group_by(wsd_source_id, park_unit) %>%
+        dplyr::summarize(swe_future = mean(max_swe, na.rm = TRUE),
                   period_future = paste0(min(year), "-", max(year)),
                   .groups = "drop")
       
       swe_change_sub[[i]] <- future_complete %>%
-        inner_join(., historical_complete, by = c("wsd_source_id", "park_unit")) %>%
-        mutate(model = ssp_sub$model,
+        dplyr::inner_join(., historical_complete, by = c("wsd_source_id", "park_unit")) %>%
+        dplyr::mutate(model = ssp_sub$model,
                ssp = ssp_sub$ssp,
                run = ssp_sub$run,
                swe_change = swe_future - swe_historical,
                percent_change = (swe_change / swe_historical) * 100)
     }
     
-    swe_change <- bind_rows(swe_change_sub)
+    swe_change <- dplyr::bind_rows(swe_change_sub)
     
   } else if(hindcast == FALSE){
     
     # distinct (model, scenario) pairs that exist in the past and future
     ssps <- combined_data %>%
-      filter(ssp != "training") %>%
-      distinct(model, ssp, run)
+      dplyr::filter(ssp != "training") %>%
+      dplyr::distinct(model, ssp, run)
     
     swe_change_sub <- vector("list", length = nrow(ssps))
     
@@ -208,35 +208,35 @@ calc_swe_exposure <- function(water_supplies,
         ssp_sub <- ssps[i,]
         
         training_historical <- combined_data %>%
-          filter(ssp == "training") %>%
-          filter(year >= hist_start_year & year <= hist_end_year)
+          dplyr::filter(ssp == "training") %>%
+          dplyr::filter(year >= hist_start_year & year <= hist_end_year)
         
         model_historical <- combined_data %>%
-          filter(model == ssp_sub$model,
+          dplyr::filter(model == ssp_sub$model,
                  ssp == ssp_sub$ssp,
                  run == ssp_sub$run) %>%
-          filter(year >= hist_start_year & year <= hist_end_year)
+          dplyr::filter(year >= hist_start_year & year <= hist_end_year)
         
         historical_complete <- training_historical %>%
-          bind_rows(model_historical) %>%
-          group_by(wsd_source_id, park_unit) %>%
-          summarize(swe_historical = mean(max_swe, na.rm = TRUE),
+          dplyr::bind_rows(model_historical) %>%
+          dplyr::group_by(wsd_source_id, park_unit) %>%
+          dplyr::summarize(swe_historical = mean(max_swe, na.rm = TRUE),
                     range_historical = paste0(min(year), "-", max(year)),
                     .groups = "drop")
         
         future_complete <- combined_data %>% 
-          filter(model == ssp_sub$model,
+          dplyr::filter(model == ssp_sub$model,
                  ssp == ssp_sub$ssp,
                  run == ssp_sub$run) %>%
-          filter(year >= future_start_year & year <= future_end_year) %>%
-          group_by(wsd_source_id, park_unit) %>%
-          summarize(swe_future = mean(max_swe, na.rm = TRUE),
+          dplyr::filter(year >= future_start_year & year <= future_end_year) %>%
+          dplyr::group_by(wsd_source_id, park_unit) %>%
+          dplyr::summarize(swe_future = mean(max_swe, na.rm = TRUE),
                     period_future = paste0(min(year), "-", max(year)),
                     .groups = "drop")
         
         swe_change_sub[[i]] <- future_complete %>%
-          inner_join(., historical_complete, by = c("wsd_source_id", "park_unit")) %>%
-          mutate(model = ssp_sub$model,
+          dplyr::inner_join(., historical_complete, by = c("wsd_source_id", "park_unit")) %>%
+          dplyr::mutate(model = ssp_sub$model,
                  ssp = ssp_sub$ssp,
                  run = ssp_sub$run,
                  swe_change = swe_future - swe_historical,
@@ -246,7 +246,7 @@ calc_swe_exposure <- function(water_supplies,
       
     }
     
-    swe_change <- bind_rows(swe_change_sub)
+    swe_change <- dplyr::bind_rows(swe_change_sub)
     
   }
   
@@ -254,63 +254,63 @@ calc_swe_exposure <- function(water_supplies,
   suppressMessages({suppressWarnings({
     
     p10_values <- swe_change %>%
-      group_by(park_unit, wsd_source_id) %>%
-      mutate(p10 = quantile(percent_change, 0.10, na.rm = TRUE),
+      dplyr::group_by(park_unit, wsd_source_id) %>%
+      dplyr::mutate(p10 = stats::quantile(percent_change, 0.10, na.rm = TRUE),
              diff_from_p10 = abs(percent_change - p10)) %>%
-      filter(diff_from_p10 == min(diff_from_p10, na.rm = TRUE)) %>%
-      slice(1) %>%  # take first if ties
-      ungroup() %>%
-      select(wsd_source_id,
+      dplyr::filter(diff_from_p10 == min(diff_from_p10, na.rm = TRUE)) %>%
+      dplyr::slice(1) %>%  # take first if ties
+      dplyr::ungroup() %>%
+      dplyr::select(wsd_source_id,
              park_unit,
              raw_swe_change_p10 = percent_change)
     
     p50_values <- swe_change %>%
-      group_by(park_unit, wsd_source_id) %>%
-      mutate(p50 = median(percent_change, na.rm = TRUE),
+      dplyr::group_by(park_unit, wsd_source_id) %>%
+      dplyr::mutate(p50 = stats::median(percent_change, na.rm = TRUE),
              diff_from_p50 = abs(percent_change - p50)) %>%
-      filter(diff_from_p50 == min(diff_from_p50, na.rm = TRUE)) %>%
-      slice(1) %>%  # take first if ties
-      ungroup() %>%
-      select(wsd_source_id,
+      dplyr::filter(diff_from_p50 == min(diff_from_p50, na.rm = TRUE)) %>%
+      dplyr::slice(1) %>%  # take first if ties
+      dplyr::ungroup() %>%
+      dplyr::select(wsd_source_id,
              park_unit,
              raw_swe_change_p50 = percent_change)
     
     p90_values <- swe_change %>%
-      group_by(park_unit, wsd_source_id) %>%
-      mutate(p90 = quantile(percent_change, 0.90, na.rm = TRUE),
+      dplyr::group_by(park_unit, wsd_source_id) %>%
+      dplyr::mutate(p90 = stats::quantile(percent_change, 0.90, na.rm = TRUE),
              diff_from_p90 = abs(percent_change - p90)) %>%
-      filter(diff_from_p90 == min(diff_from_p90, na.rm = TRUE)) %>%
-      slice(1) %>%  # take first if ties
-      ungroup() %>%
-      select(wsd_source_id,
+      dplyr::filter(diff_from_p90 == min(diff_from_p90, na.rm = TRUE)) %>%
+      dplyr::slice(1) %>%  # take first if ties
+      dplyr::ungroup() %>%
+      dplyr::select(wsd_source_id,
              park_unit,
              raw_swe_change_p90 = percent_change)
     
     # calculate fraction of models showing decrease
     model_fractions <- swe_change %>%
-      group_by(park_unit, wsd_source_id) %>%
-      summarize(raw_swe_models_showing_decrease = 100 * sum(percent_change < 0, na.rm = TRUE) / n(),
+      dplyr::group_by(park_unit, wsd_source_id) %>%
+      dplyr::summarize(raw_swe_models_showing_decrease = 100 * sum(percent_change < 0, na.rm = TRUE) / dplyr::n(),
                 .groups = "drop")
     
   })})
   
   # Combine all indicators using standardized joins
   final_results <- p10_values %>%
-    left_join(p50_values, by = c("wsd_source_id", "park_unit")) %>%
-    left_join(p90_values, by = c("wsd_source_id", "park_unit")) %>%
-    left_join(model_fractions, by = c("wsd_source_id", "park_unit")) %>%
+    dplyr::left_join(p50_values, by = c("wsd_source_id", "park_unit")) %>%
+    dplyr::left_join(p90_values, by = c("wsd_source_id", "park_unit")) %>%
+    dplyr::left_join(model_fractions, by = c("wsd_source_id", "park_unit")) %>%
     # add standardized indicators using helper function
     add_standardized_indicators("raw_swe_change", invert = TRUE) %>%
     add_standardized_indicators("raw_swe_models_showing_decrease") %>%
     # reorder columns following standardized pattern
-    select(wsd_source_id, park_unit, everything())
+    dplyr::select(wsd_source_id, park_unit, dplyr::everything())
   
   # Save results
   if (save) {
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     
     filename <- file.path(output_dir, paste0("swe_exposure_", Sys.Date(), ".csv"))
-    write_csv(final_results, filename)
+    readr::write_csv(final_results, filename)
     
     if (verbose) {
       message("Results saved to: ", filename)

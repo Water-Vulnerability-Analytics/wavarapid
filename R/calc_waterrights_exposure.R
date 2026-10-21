@@ -71,7 +71,7 @@
 #' @export
 calc_waterrights_exposure <- function(
     water_supplies,
-    stress_data = wava_data_path("rapid",
+    stress_data = wavacore::wava_data_path("rapid",
                        "inputs",
                        "WaterRightsIndicator",
                        "waterrights_stress_long.csv"),
@@ -104,7 +104,7 @@ calc_waterrights_exposure <- function(
       "stress_data path does not exist \u2014 run process_waterrightsindicator_data() first" =
         file.exists(stress_data)
     )
-    stress_data <- read_csv(stress_data, show_col_types = FALSE)
+    stress_data <- readr::read_csv(stress_data, show_col_types = FALSE)
   }
   
   required_columns <- c("wsd_source_id", "park_unit", "park_name",
@@ -144,27 +144,27 @@ calc_waterrights_exposure <- function(
   
   # Baseline (Sensitivity) values, carried as trajectory context
   baseline_stress <- stress_data %>%
-    filter(period == "baseline") %>%
-    distinct(wsd_source_id, .keep_all = TRUE) %>%
-    select(wsd_source_id,
+    dplyr::filter(period == "baseline") %>%
+    dplyr::distinct(wsd_source_id, .keep_all = TRUE) %>%
+    dplyr::select(wsd_source_id,
            baseline_water_stress       = stress_score,
            baseline_water_stress_label = stress_label)
   
   # Worst-case RCP at the selected horizon — one row per water supply
   worst_future <- stress_data %>%
-    filter(period == !!period, !is.na(stress_score)) %>%
-    mutate(rcp = factor(as.character(rcp), levels = rcp_levels)) %>%
-    group_by(wsd_source_id) %>%
-    mutate(
+    dplyr::filter(period == !!period, !is.na(stress_score)) %>%
+    dplyr::mutate(rcp = factor(as.character(rcp), levels = rcp_levels)) %>%
+    dplyr::group_by(wsd_source_id) %>%
+    dplyr::mutate(
       is_worst  = stress_score == max(stress_score),                       # flag the max-stress rcp(s)
       tied_rcps = paste(sort(unique(as.character(rcp[is_worst]))),         # always list low -> high
                         collapse = ", ")
     ) %>%
-    filter(is_worst) %>%
-    arrange(desc(rcp), .by_group = TRUE) %>%                               # highest forcing first
-    slice(1) %>%                                                           # keep 1 row per water supply
-    ungroup() %>%
-    select(wsd_source_id, park_unit, park_name,
+    dplyr::filter(is_worst) %>%
+    dplyr::arrange(dplyr::desc(rcp), .by_group = TRUE) %>%                               # highest forcing first
+    dplyr::slice(1) %>%                                                           # keep 1 row per water supply
+    dplyr::ungroup() %>%
+    dplyr::select(wsd_source_id, park_unit, park_name,
            worst_rcp = rcp, tied_rcps,
            raw_water_stress   = stress_score,
            water_stress_label = stress_label)
@@ -175,15 +175,15 @@ calc_waterrights_exposure <- function(
   
   # Trajectory from baseline to the selected end-state
   results <- worst_future %>%
-    left_join(baseline_stress, by = "wsd_source_id") %>%
-    mutate(
+    dplyr::left_join(baseline_stress, by = "wsd_source_id") %>%
+    dplyr::mutate(
       worst_rcp = as.character(worst_rcp),
       
       # numeric change: future - baseline (positive = worsening)
       water_stress_change = round(raw_water_stress - baseline_water_stress, 3),
       
       water_stress_change_direction = factor(
-        case_when(water_stress_change > 0 ~ "Worsened",
+        dplyr::case_when(water_stress_change > 0 ~ "Worsened",
                   water_stress_change < 0 ~ "Improved",
                   TRUE                    ~ "Unchanged"),
         levels = c("Improved", "Unchanged", "Worsened")),
@@ -201,7 +201,7 @@ calc_waterrights_exposure <- function(
                                             water_stress_label)
     ) %>%
     # append the horizon to the indicator columns
-    rename_with(~ paste0(.x, "_", period),
+    dplyr::rename_with(~ paste0(.x, "_", period),
                 .cols = c(raw_water_stress, water_stress_label))
   
   if (verbose) {
@@ -215,14 +215,14 @@ calc_waterrights_exposure <- function(
   final_results <- results %>%
     add_standardized_indicators(raw_col, invert = FALSE) %>%
     # reorder columns following standardized pattern
-    select(wsd_source_id, park_unit, park_name,
+    dplyr::select(wsd_source_id, park_unit, park_name,
            worst_rcp, tied_rcps,
-           all_of(c(raw_col, norm_col, rank_col, label_col)),
+           dplyr::all_of(c(raw_col, norm_col, rank_col, label_col)),
            baseline_water_stress, baseline_water_stress_label,
            water_stress_change, water_stress_change_direction,
            water_stress_rank_change, water_stress_label_changed,
            water_stress_label_transition) %>%
-    arrange(wsd_source_id)
+    dplyr::arrange(wsd_source_id)
   
   # Save results
   if (save) {
@@ -230,7 +230,7 @@ calc_waterrights_exposure <- function(
     
     filename <- file.path(output_dir,
                           paste0("waterrights_exposure_", period, "_", Sys.Date(), ".csv"))
-    write_csv(final_results, filename)
+    readr::write_csv(final_results, filename)
     
     if (verbose) {
       message("Results saved to: ", filename)

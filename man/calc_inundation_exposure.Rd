@@ -6,9 +6,9 @@
 \usage{
 calc_inundation_exposure(
   ws_scenarios,
-  inundation_raster_data_dir = wava_data_path("rapid", "inputs", "coast_comp",
+  inundation_raster_data_dir = wavacore::wava_data_path("rapid", "inputs", "coast_comp",
     "Extent_Rasters"),
-  coast_distances = wava_data_path("rapid", "inputs", "coast_comp",
+  coast_distances = wavacore::wava_data_path("rapid", "inputs", "coast_comp",
     "coastal_site_geometry.csv"),
   save = FALSE,
   output_dir = NULL,

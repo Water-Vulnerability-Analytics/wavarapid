@@ -6,7 +6,7 @@
 \usage{
 calc_waterrights_sensitivity(
   water_supplies,
-  stress_data = wava_data_path("rapid", "inputs", "WaterRightsIndicator",
+  stress_data = wavacore::wava_data_path("rapid", "inputs", "WaterRightsIndicator",
     "waterrights_stress_long.csv"),
   save = FALSE,
   output_dir = NULL,

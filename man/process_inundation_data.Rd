@@ -5,10 +5,10 @@
 \title{Process coastal inundation inputs for water-supply risk analysis}
 \usage{
 process_inundation_data(
-  coast_dir_path = wava_data_path("all", "coast_comp_data"),
+  coast_dir_path = wavacore::wava_data_path("all", "coast_comp_data"),
   water_supplies,
   save = TRUE,
-  output_dir = wava_data_path("rapid", "inputs", "coast_comp")
+  output_dir = wavacore::wava_data_path("rapid", "inputs", "coast_comp")
 )
 }
 \arguments{

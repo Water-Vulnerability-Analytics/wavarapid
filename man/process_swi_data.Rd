@@ -5,10 +5,10 @@
 \title{Process Adams et al. 2024 Saltwater Intrusion Dataset}
 \usage{
 process_swi_data(
-  data_path = wava_data_path("all", "coast_comp_data", "adams_swi_2024", "data",
-    "output_data.txt"),
+  data_path = wavacore::wava_data_path("all", "coast_comp_data", "adams_swi_2024",
+    "data", "output_data.txt"),
   save = TRUE,
-  output_dir = wava_data_path("rapid", "inputs", "swi")
+  output_dir = wavacore::wava_data_path("rapid", "inputs", "swi")
 )
 }
 \arguments{

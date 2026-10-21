@@ -32,12 +32,12 @@ calc_flood_risk <-
     
     # buffer points to specified distance
     data <- data %>% 
-      st_transform(crs = 32616) %>% 
-      st_buffer(dist = dist)
+      sf::st_transform(crs = 32616) %>% 
+      sf::st_buffer(dist = dist)
     
     # match CRS to that of FEMA flood layer
-    if (st_crs(data) != st_crs(4269)) {
-      data <- st_transform(data, crs = 4269)
+    if (sf::st_crs(data) != sf::st_crs(4269)) {
+      data <- sf::st_transform(data, crs = 4269)
     }
     
     # Start timing
@@ -54,14 +54,14 @@ calc_flood_risk <-
     }
     
     # for each water supply....
-    results <-  map_dfr(seq_len(nrow(data)), function(i) {
+    results <-  purrr::map_dfr(seq_len(nrow(data)), function(i) {
       if (verbose) pb$tick()
     
       
       boundary <- data[i, ]
       
       ## get bounding box
-      bb <- st_bbox(boundary)
+      bb <- sf::st_bbox(boundary)
       
       ## extract bbox numbers
       bb.ordered <- paste(bb[1], bb[2], bb[3], bb[4], sep = "%2C")
@@ -103,7 +103,7 @@ calc_flood_risk <-
       floodHaz <- tryCatch(
         {
           sf::read_sf(url) %>%
-            st_make_valid()
+            sf::st_make_valid()
         },
         error = function(e) {
           if (verbose) {
@@ -117,7 +117,7 @@ calc_flood_risk <-
       
       # if error occurred during read
       if (is.null(floodHaz)) {
-        df <- tibble(
+        df <- dplyr::tibble(
           wsd_source_id = data[i, ]$wsd_source_id,
           park_unit = data[i, ]$park_unit,
           park_name = data[i, ]$park_name,
@@ -126,7 +126,7 @@ calc_flood_risk <-
         )
         
       } else if (nrow(floodHaz) == 0) {
-        df <- tibble(
+        df <- dplyr::tibble(
           wsd_source_id = data[i, ]$wsd_source_id,
           park_unit = data[i, ]$park_unit,
           park_name = data[i, ]$park_name,
@@ -137,13 +137,13 @@ calc_flood_risk <-
       } else {
         ## filter to zones that hve A or V in them - high-risk flood zones/1% flood prob https://floodpartners.com/flood-zones/
         floodRisk <- floodHaz %>%
-          filter(stringr::str_detect(FLD_ZONE, "A|V") &
+          dplyr::filter(stringr::str_detect(FLD_ZONE, "A|V") &
                    FLD_ZONE != "AREA NOT INCLUDED") # not sure if 'area not included' is in fema raw data
         
         
         # if no high risk flood zones
         if (nrow(floodRisk) == 0) {
-          df <- tibble(
+          df <- dplyr::tibble(
             wsd_source_id = data[i, ]$wsd_source_id,
             park_unit = data[i, ]$park_unit,
             park_name = data[i, ]$park_name,
@@ -152,18 +152,18 @@ calc_flood_risk <-
           )
         } else {
           # match CRS
-          boundary <- st_transform(boundary, st_crs(floodRisk))
+          boundary <- sf::st_transform(boundary, sf::st_crs(floodRisk))
           
           # Set attribute-geometry relationship to suppress warning
-          st_agr(floodRisk) <- "constant"
-          st_agr(boundary) <- "constant"
+          sf::st_agr(floodRisk) <- "constant"
+          sf::st_agr(boundary) <- "constant"
           
           # return overlapping areas
-          floodArea <- st_intersection(floodRisk, boundary)
+          floodArea <- sf::st_intersection(floodRisk, boundary)
           
           # if no intersection
           if (nrow(floodArea) == 0) {
-            df <- tibble(
+            df <- dplyr::tibble(
               wsd_source_id = data[i, ]$wsd_source_id,
               park_unit = data[i, ]$park_unit,
               park_name = data[i, ]$park_name,
@@ -171,16 +171,16 @@ calc_flood_risk <-
               raw_flood_risk_percent = 0
             )
           } else {
-            df <- tibble(
+            df <- dplyr::tibble(
               wsd_source_id = data[i, ]$wsd_source_id,
               park_unit = data[i, ]$park_unit,
               park_name = data[i, ]$park_name,
-              raw_flood_risk_area_m2 = as.numeric(sum(st_area(
+              raw_flood_risk_area_m2 = as.numeric(sum(sf::st_area(
                 floodArea
               ))),
-              raw_flood_risk_percent = as.numeric(sum(st_area(
+              raw_flood_risk_percent = as.numeric(sum(sf::st_area(
                 floodArea
-              )) / st_area(boundary) * 100)
+              )) / sf::st_area(boundary) * 100)
             )
             
           }
@@ -193,11 +193,11 @@ calc_flood_risk <-
     
     # Average across geometries if a wsd_source_id had multiple entries in water_supplies
     results <- results %>% 
-      summarise(
+      dplyr::summarise(
         raw_flood_risk_area_m2  = mean(raw_flood_risk_area_m2, na.rm = TRUE),
         raw_flood_risk_percent  = mean(raw_flood_risk_percent, na.rm = TRUE),
-        park_unit = first(park_unit),
-        park_name = first(park_name),
+        park_unit = dplyr::first(park_unit),
+        park_name = dplyr::first(park_name),
         .by = wsd_source_id
       )
     
@@ -212,7 +212,7 @@ calc_flood_risk <-
       
       filename <- file.path(output_dir,
                             paste0("flood_sensitivity_", Sys.Date(), ".csv"))
-      write_csv(final_results, filename)
+      readr::write_csv(final_results, filename)
       
       if (verbose) {
         message("Results saved to: ", filename)

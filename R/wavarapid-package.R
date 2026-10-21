@@ -1,40 +1,21 @@
 #' @keywords internal
 "_PACKAGE"
 
-## Functions from other packages that the code calls without a `pkg::` prefix.
-## The playground got these from `library()` calls in setup.R.
-#' @importFrom arrow read_parquet write_parquet
-#' @importFrom data.table as.data.table data.table fifelse fread
-#' @importFrom data.table setDT tstrsplit
-#' @importFrom dplyr .data across all_of any_of arrange as_tibble bind_rows
-#' @importFrom dplyr case_when coalesce count cross_join cume_dist desc
-#' @importFrom dplyr distinct everything filter first group_by if_all if_else
-#' @importFrom dplyr inner_join last_col left_join matches mutate n pull
-#' @importFrom dplyr relocate rename rename_with select slice slice_max
-#' @importFrom dplyr slice_min starts_with summarise summarize tibble
-#' @importFrom dplyr transmute tribble ungroup
-#' @importFrom lubridate month year ym
-#' @importFrom ncdf4 nc_close nc_open ncatt_get ncvar_get
-#' @importFrom purrr keep map map_chr map_dbl map_dfr map_int possibly pwalk
-#' @importFrom purrr walk
-#' @importFrom readr cols read_csv read_lines write_csv
-#' @importFrom sf st_area st_as_sf st_bbox st_buffer st_crs st_distance
-#' @importFrom sf st_drop_geometry st_filter st_intersection st_intersects
-#' @importFrom sf st_is_empty st_join st_make_valid st_nearest_feature st_read
-#' @importFrom sf st_transform st_union st_write
-#' @importFrom stats coef lm median na.omit predict quantile sd weighted.mean
-#' @importFrom stringr `%>%` str_extract str_remove str_replace str_split
-#' @importFrom stringr str_starts
-#' @importFrom terra crds crs rast relate vect
-#' @importFrom tibble rowid_to_column
-#' @importFrom tidyr crossing drop_na expand_grid pivot_longer pivot_wider
-#' @importFrom utils data download.file head read.table write.csv
-#' @importFrom wavacore getUnitVisitation wava_data_path
+## Functions from other packages are called as `pkg::fun()`. The only imports
+## are `%>%` (operators can't be called with `::`, see utils-pipe.R) and the
+## `.data` pronoun below, which is not a function.
+#' @importFrom dplyr .data
 NULL
+
+## Lets data.table syntax (`dt[, x := ...]`) work without importing data.table.
+.datatable.aware <- TRUE
 
 ## Column names used inside dplyr and data.table calls.
 utils::globalVariables(c(
   ":=", ".I", ".N", ".SD",
+  # Columns that share a name with a function; check() didn't flag them
+  # while those functions were imported.
+  "count", "data", "month", "year", "ym",
    ".", "..keep_cols", "1951-1980_best-fit",
    "1951-1980_high-bound-confidence-interval",
    "1951-1980_low-bound-confidence-interval", "1985-2014_best-fit",

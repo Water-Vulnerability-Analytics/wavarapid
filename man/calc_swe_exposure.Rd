@@ -7,7 +7,7 @@ Calculates peak SWE change vulnerability using LOCA2 climate model data and the 
 \usage{
 calc_swe_exposure(
   water_supplies,
-  swe_data = wava_data_path("rapid", "inputs", "loca2_swe_water_supplies/"),
+  swe_data = wavacore::wava_data_path("rapid", "inputs", "loca2_swe_water_supplies/"),
   hindcast = TRUE,
   historical,
   future,

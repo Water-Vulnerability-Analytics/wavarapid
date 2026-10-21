@@ -14,8 +14,8 @@
 #' @return Tibble with one row per supply.
 #' @export
 calc_wta_sensitivity <- function(water_supplies,
-                                 data_dir = wava_data_path("Latest county-level data", "water_demand_projections"),
-                                 watersheds = wava_data_path("all", "WBD_National_GDB.gdb"),
+                                 data_dir = wavacore::wava_data_path("Latest county-level data", "water_demand_projections"),
+                                 watersheds = wavacore::wava_data_path("all", "WBD_National_GDB.gdb"),
                                  huc_level = 8L,
                                  max_watershed_distance_km = 5,
                                  save = FALSE,
@@ -26,53 +26,53 @@ calc_wta_sensitivity <- function(water_supplies,
   huc_format <- paste0("%0", huc_level, "d")    # pads leading zeros
 
   # 1. Read historical WTA ratios
-  historical <- read_csv(file.path(data_dir, "wta_ratios_2000_2020.csv"),
-                         col_types = cols(huc = "c", ratio = "d")) |>
-    filter(agg == aggregation) |>
-    transmute(huc = sprintf(huc_format, as.integer(huc)), raw_wta = ratio)
+  historical <- readr::read_csv(file.path(data_dir, "wta_ratios_2000_2020.csv"),
+                         col_types = readr::cols(huc = "c", ratio = "d")) |>
+    dplyr::filter(agg == aggregation) |>
+    dplyr::transmute(huc = sprintf(huc_format, as.integer(huc)), raw_wta = ratio)
 
   # 2. Assign each supply to a watershed (lowest HUC on a shared boundary)
   if (!inherits(watersheds, "sf")) {
-    watersheds <- st_read(watersheds, layer = paste0("WBDHU", huc_level), quiet = TRUE)
+    watersheds <- sf::st_read(watersheds, layer = paste0("WBDHU", huc_level), quiet = TRUE)
   }
   watersheds <- watersheds |>
-    mutate(huc = sprintf(huc_format, as.integer(.data[[paste0("huc", huc_level)]]))) |>
-    st_make_valid() |>
-    st_transform(5070)
-  points <- st_transform(water_supplies, 5070)
+    dplyr::mutate(huc = sprintf(huc_format, as.integer(.data[[paste0("huc", huc_level)]]))) |>
+    sf::st_make_valid() |>
+    sf::st_transform(5070)
+  points <- sf::st_transform(water_supplies, 5070)
 
-  index <- sapply(st_intersects(points, watersheds),
+  index <- sapply(sf::st_intersects(points, watersheds),
                   function(i) if (length(i)) i[order(watersheds$huc[i])][1] else NA_integer_)
   distance <- ifelse(is.na(index), NA_real_, 0)
   method <- ifelse(is.na(index), "unmatched", "intersects")
 
-  outside <- which(is.na(index) & !st_is_empty(points))
+  outside <- which(is.na(index) & !sf::st_is_empty(points))
   if (length(outside)) {
-    nearest <- st_nearest_feature(points[outside, ], watersheds)
-    km <- as.numeric(st_distance(points[outside, ], watersheds[nearest, ], by_element = TRUE)) / 1000
+    nearest <- sf::st_nearest_feature(points[outside, ], watersheds)
+    km <- as.numeric(sf::st_distance(points[outside, ], watersheds[nearest, ], by_element = TRUE)) / 1000
     distance[outside] <- km
     index[outside[km <= max_watershed_distance_km]] <- nearest[km <= max_watershed_distance_km]
     method[outside[km <= max_watershed_distance_km]] <- "nearest"
   }
 
   # 3. Join ratios to supplies and standardize
-  final <- st_drop_geometry(water_supplies) |>
-    select(wsd_source_id, park_unit, park_name) |>
-    mutate(huc = watersheds$huc[index],
+  final <- sf::st_drop_geometry(water_supplies) |>
+    dplyr::select(wsd_source_id, park_unit, park_name) |>
+    dplyr::mutate(huc = watersheds$huc[index],
            watershed_match_method = method,
            watershed_distance_km = distance) |>
-    left_join(historical, by = "huc") |>
-    mutate(data_status = case_when(is.na(huc) ~ "unmatched_watershed",
+    dplyr::left_join(historical, by = "huc") |>
+    dplyr::mutate(data_status = dplyr::case_when(is.na(huc) ~ "unmatched_watershed",
                                    is.na(raw_wta) ~ "missing_historical_ratio",
                                    TRUE ~ "ok")) |>
     add_standardized_indicators("raw_wta") |>
-    mutate(aggregation = aggregation,
+    dplyr::mutate(aggregation = aggregation,
            historical_period = "2000-2020",
            wta_units = "WTA ratio")
 
   if (save) {
     filename <- file.path(output_dir, paste0("wta_sensitivity_", tolower(aggregation), "_", Sys.Date(), ".csv"))
-    write_csv(final, filename)
+    readr::write_csv(final, filename)
     if (verbose) message("Results saved to: ", filename)
   }
   if (verbose) message("WTA sensitivity: ", sum(final$data_status == "ok"), "/", nrow(final), " supplies with historical WTA")

@@ -28,7 +28,7 @@
 #' @export
 calc_wet_period_sensitivity <- function(
     water_supplies,
-    period_data = wava_data_path("rapid", "inputs", "loca_cmip6_precip_periods_water_supplies/"),
+    period_data = wavacore::wava_data_path("rapid", "inputs", "loca_cmip6_precip_periods_water_supplies/"),
     historical,
     save = FALSE,
     output_dir = NULL,

@@ -34,8 +34,8 @@
 #' @export
 calc_swi_exposure <- function(
     water_supplies,
-    swi_pts    = wava_data_path("rapid", "inputs", "swi", "swi_points.gpkg"),
-    coast_distances = wava_data_path("rapid", "inputs", "coast_comp", "coastal_site_geometry.csv"),
+    swi_pts    = wavacore::wava_data_path("rapid", "inputs", "swi", "swi_points.gpkg"),
+    coast_distances = wavacore::wava_data_path("rapid", "inputs", "coast_comp", "coastal_site_geometry.csv"),
     save       = FALSE,
     output_dir = NULL,
     verbose    = TRUE) {
@@ -56,22 +56,22 @@ calc_swi_exposure <- function(
   if (!inherits(swi_pts, "sf")) {
     stopifnot("swi_pts path does not exist \u2014 run process_swi_data() first" = file.exists(swi_pts))
     if (verbose) message("Loading SWI points ...")
-    swi_pts <- st_read(swi_pts, quiet = !verbose)
+    swi_pts <- sf::st_read(swi_pts, quiet = !verbose)
   }
 
-  ws_proj  <- st_transform(water_supplies, 5070)  # NAD83 / CONUS Albers (meters)
-  swi_proj <- st_transform(swi_pts, 5070)
+  ws_proj  <- sf::st_transform(water_supplies, 5070)  # NAD83 / CONUS Albers (meters)
+  swi_proj <- sf::st_transform(swi_pts, 5070)
 
   if (verbose) message(paste0("Finding nearest SWI point for ", nrow(ws_proj), " water supplies ..."))
 
-  nearest_idx     <- st_nearest_feature(ws_proj, swi_proj)
-  dist_to_nearest <- as.numeric(st_distance(ws_proj, swi_proj[nearest_idx, ], by_element = TRUE))
+  nearest_idx     <- sf::st_nearest_feature(ws_proj, swi_proj)
+  dist_to_nearest <- as.numeric(sf::st_distance(ws_proj, swi_proj[nearest_idx, ], by_element = TRUE))
 
   swi_assigned <- water_supplies %>%
-    st_drop_geometry() %>%
-    select(wsd_source_id, park_unit, park_name) %>%
-    mutate(
-      raw_swi_migration = if_else(dist_to_nearest <= 50000,
+    sf::st_drop_geometry() %>%
+    dplyr::select(wsd_source_id, park_unit, park_name) %>%
+    dplyr::mutate(
+      raw_swi_migration = dplyr::if_else(dist_to_nearest <= 50000,
                                   swi_pts$Case_C[nearest_idx],
                                   NA_real_)
     )
@@ -84,15 +84,15 @@ calc_swi_exposure <- function(
 
   # Divide by distance to coast: raw_swi_migration / coast_dist_m gives the
   # fraction of the land-to-coast corridor projected to be intruded (dimensionless)
-  coast_distances_df <- read_csv(coast_distances, show_col_types = FALSE) %>%
-    select(wsd_source_id, park_unit, park_name, coast_dist_m)
+  coast_distances_df <- readr::read_csv(coast_distances, show_col_types = FALSE) %>%
+    dplyr::select(wsd_source_id, park_unit, park_name, coast_dist_m)
 
   swi_weighted <- swi_assigned %>%
-    left_join(coast_distances_df, by = c("wsd_source_id", "park_unit", "park_name")) %>%
-    mutate(raw_swi_migration = raw_swi_migration / coast_dist_m,
+    dplyr::left_join(coast_distances_df, by = c("wsd_source_id", "park_unit", "park_name")) %>%
+    dplyr::mutate(raw_swi_migration = raw_swi_migration / coast_dist_m,
            # if migration exceeds distance to coast, cap at 1:
            raw_swi_migration = pmin(raw_swi_migration, 1)) %>%
-    select(-coast_dist_m)
+    dplyr::select(-coast_dist_m)
   
   # Standardize 
   results <- swi_weighted %>%
@@ -102,7 +102,7 @@ calc_swi_exposure <- function(
   if (save) {
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     filename <- file.path(output_dir, paste0("swi_exposure_", Sys.Date(), ".csv"))
-    write_csv(results, filename)
+    readr::write_csv(results, filename)
     if (verbose) message("Results saved to: ", filename)
   }
 

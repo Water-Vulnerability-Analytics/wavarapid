@@ -50,7 +50,7 @@
 #' @export
 calc_waterrights_sensitivity <- function(
     water_supplies,
-    stress_data = wava_data_path("rapid",
+    stress_data = wavacore::wava_data_path("rapid",
                        "inputs",
                        "WaterRightsIndicator",
                        "waterrights_stress_long.csv"),
@@ -78,7 +78,7 @@ calc_waterrights_sensitivity <- function(
       "stress_data path does not exist \u2014 run process_waterrightsindicator_data() first" =
         file.exists(stress_data)
     )
-    stress_data <- read_csv(stress_data, show_col_types = FALSE)
+    stress_data <- readr::read_csv(stress_data, show_col_types = FALSE)
   }
 
   required_columns <- c("wsd_source_id", "park_unit", "park_name",
@@ -103,9 +103,9 @@ calc_waterrights_sensitivity <- function(
   
   # Sensitivity is the baseline period only — one row per water supply
   results <- stress_data %>%
-    filter(period == "baseline") %>%
-    distinct(wsd_source_id, .keep_all = TRUE) %>%
-    select(wsd_source_id, park_unit, park_name,
+    dplyr::filter(period == "baseline") %>%
+    dplyr::distinct(wsd_source_id, .keep_all = TRUE) %>%
+    dplyr::select(wsd_source_id, park_unit, park_name,
            raw_water_stress   = stress_score,
            water_stress_label = stress_label)
 
@@ -121,7 +121,7 @@ calc_waterrights_sensitivity <- function(
   final_results <- results %>%
     add_standardized_indicators("raw_water_stress", invert = FALSE) %>%
     # reorder columns following standardized pattern
-    select(wsd_source_id, park_unit, park_name, everything())
+    dplyr::select(wsd_source_id, park_unit, park_name, dplyr::everything())
 
   # Save results
   if (save) {
@@ -129,7 +129,7 @@ calc_waterrights_sensitivity <- function(
 
     filename <- file.path(output_dir,
                           paste0("waterrights_sensitivity_", Sys.Date(), ".csv"))
-    write_csv(final_results, filename)
+    readr::write_csv(final_results, filename)
 
     if (verbose) {
       message("Results saved to: ", filename)

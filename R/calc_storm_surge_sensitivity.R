@@ -36,7 +36,7 @@
 #' @export
 calc_storm_surge_sensitivity <- function(water_supplies,
                                          storm_surge_stations,
-                                         coast_geometry = wava_data_path("rapid",
+                                         coast_geometry = wavacore::wava_data_path("rapid",
                                                                "inputs",
                                                                "coast_comp",
                                                                "coastal_site_geometry.csv"),
@@ -80,10 +80,10 @@ calc_storm_surge_sensitivity <- function(water_supplies,
   # Reduce to one row per station: mean reference_mean across all 4 models
   prepped_stations <- storm_surge_stations %>%
     sf::st_drop_geometry() %>%
-    group_by(station_idx) %>%
-    summarize(reference_mean = mean(reference_mean, na.rm = TRUE),
-             lat = first(lat),
-             lon = first(lon),
+    dplyr::group_by(station_idx) %>%
+    dplyr::summarize(reference_mean = mean(reference_mean, na.rm = TRUE),
+             lat = dplyr::first(lat),
+             lon = dplyr::first(lon),
              .groups = "drop") %>%
     sf::st_as_sf(coords = c("lon", "lat"), crs = 4326, remove = FALSE)
 

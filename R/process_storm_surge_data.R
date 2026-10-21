@@ -48,7 +48,7 @@
 #' @export
 process_storm_surge_data <- function(data_dir,
                                      save = TRUE,
-                                     output_dir = wava_data_path("rapid", "inputs", "storm_surge"),
+                                     output_dir = wavacore::wava_data_path("rapid", "inputs", "storm_surge"),
                                      verbose = TRUE) {
   
   # Input validation

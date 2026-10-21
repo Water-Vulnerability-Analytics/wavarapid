@@ -9,7 +9,8 @@ Authors@R: c(
     person("Juan", "De La Torre", role = c("cre", "aut"),
            email = "juan.delatorre@colostate.edu"),
     person("Cibi Vishnu", "Chinnasamy", role = "aut",
-           email = "Cibi.Chinnasamy@colostate.edu"))
+           email = "Cibi.Chinnasamy@colostate.edu"),
+    person("ROSS - Radical Open Science Syndicate and all contributors", role = "cph"))
 Description: Indicator functions for the rapid, nationwide water supply
     vulnerability assessment of National Park Service units. Each indicator
     has an exposure and/or sensitivity function, and the vulnerability index
@@ -31,6 +32,7 @@ Imports:
     future,
     geosphere,
     lubridate,
+    magrittr,
     ncdf4,
     nngeo,
     progress,

@@ -24,25 +24,25 @@
 #'
 #' @export
 process_swi_data <- function(
-    data_path  = wava_data_path("all", "coast_comp_data", "adams_swi_2024", "data", "output_data.txt"),
+    data_path  = wavacore::wava_data_path("all", "coast_comp_data", "adams_swi_2024", "data", "output_data.txt"),
     save       = TRUE,
-    output_dir = wava_data_path("rapid", "inputs", "swi")) {
+    output_dir = wavacore::wava_data_path("rapid", "inputs", "swi")) {
 
   stopifnot("output_data.txt not found \u2014 check data_path" = file.exists(data_path),
             "save is TRUE but output_dir not provided"    = !save || !is.null(output_dir))
 
-  swi_pts <- read.table(data_path, header = TRUE, sep = " ") %>%
-    as_tibble() %>%
-    rename(watershed_id = WatershedID) %>%
+  swi_pts <- utils::read.table(data_path, header = TRUE, sep = " ") %>%
+    dplyr::as_tibble() %>%
+    dplyr::rename(watershed_id = WatershedID) %>%
     # Case_C: meters of inland SWI migration by 2100 (combined recharge + SLR)
-    select(watershed_id, lat, lon, Case_C) %>%
-    filter(lon >= -125, lon <= -66, lat >= 24, lat <= 50) %>%
-    st_as_sf(coords = c("lon", "lat"), crs = 4326, remove = FALSE)
+    dplyr::select(watershed_id, lat, lon, Case_C) %>%
+    dplyr::filter(lon >= -125, lon <= -66, lat >= 24, lat <= 50) %>%
+    sf::st_as_sf(coords = c("lon", "lat"), crs = 4326, remove = FALSE)
 
   if (save) {
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     pts_path <- file.path(output_dir, "swi_points.gpkg")
-    st_write(swi_pts, pts_path, delete_dsn = TRUE, quiet = TRUE)
+    sf::st_write(swi_pts, pts_path, delete_dsn = TRUE, quiet = TRUE)
   }
 
   return(swi_pts)

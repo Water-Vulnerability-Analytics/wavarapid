@@ -6,7 +6,8 @@
 \usage{
 calc_temp_exposure(
   water_supplies,
-  temp_data = wava_data_path("rapid", "inputs", "loca2_temperature_water_supplies/"),
+  temp_data = wavacore::wava_data_path("rapid", "inputs",
+    "loca2_temperature_water_supplies/"),
   hindcast = TRUE,
   historical,
   future,

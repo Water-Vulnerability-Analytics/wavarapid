@@ -23,13 +23,13 @@
 #' @return data.table of monthly drought data.
 #' @export
 process_drought_data <- function(water_supplies,
-                                 precip_data = wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/"),
-                                 pet_data = wava_data_path("rapid", "inputs", "loca2_pet_water_supplies/"),
+                                 precip_data = wavacore::wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/"),
+                                 pet_data = wavacore::wava_data_path("rapid", "inputs", "loca2_pet_water_supplies/"),
                                  hindcast = TRUE,
                                  historical,
                                  future,
                                  water_year = TRUE,
-                                 output_dir = wava_data_path("rapid", "inputs/"),
+                                 output_dir = wavacore::wava_data_path("rapid", "inputs/"),
                                  save = TRUE,
                                  verbose = TRUE) {
   

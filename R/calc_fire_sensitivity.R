@@ -51,7 +51,7 @@ calc_fire_sensitivity <- function(water_supplies,
   }
   
   # Process each water supply
-  results <- map_dfr(seq_len(nrow(water_supplies)), function(i) {
+  results <- purrr::map_dfr(seq_len(nrow(water_supplies)), function(i) {
     if (verbose) pb$tick()
     
     # RAW WHP
@@ -60,25 +60,25 @@ calc_fire_sensitivity <- function(water_supplies,
       # Calculate area-weighted mean WHP for water supply buffer
       ws_whp <- terra::zonal(
         whp_raster,
-        terra::vect(st_transform(water_supplies[i, ], crs(whp_raster))),
+        terra::vect(sf::st_transform(water_supplies[i, ], terra::crs(whp_raster))),
         fun = "mean",
         weights = TRUE,
         na.rm = TRUE
       )
       
       # Create results tibble
-      tibble(
+      dplyr::tibble(
         wsd_source_id = water_supplies[i, ]$wsd_source_id,
         park_unit = water_supplies[i, ]$park_unit,
         park_name = water_supplies[i, ]$park_name,
-        raw_wildfire_hazard_mean = pull(ws_whp)
+        raw_wildfire_hazard_mean = dplyr::pull(ws_whp)
       )
       
     } else {
       # Calculate area-weighted % high/very high WHP category for water supply buffer
       
       ## pull out park shapefile and transform
-      ws <- terra::vect(st_transform(water_supplies[i, ], crs(whp_raster)))
+      ws <- terra::vect(sf::st_transform(water_supplies[i, ], terra::crs(whp_raster)))
       
       # Extract values with cell overlap fractions
       extracted <- terra::extract(binary, ws, weights = TRUE, exact = TRUE)
@@ -90,7 +90,7 @@ calc_fire_sensitivity <- function(water_supplies,
       percent <- (coverage_weight / total_weight) * 100
       
       # Create results tibble
-      tibble(
+      dplyr::tibble(
         wsd_source_id = water_supplies[i, ]$wsd_source_id,
         park_unit = water_supplies[i, ]$park_unit,
         park_name = water_supplies[i, ]$park_name,
@@ -106,10 +106,10 @@ calc_fire_sensitivity <- function(water_supplies,
   
   # Average across geometries if a wsd_source_id had multiple entries in water_supplies
   results <- results %>% 
-    summarise(
+    dplyr::summarise(
       raw_wildfire_hazard_mean = mean(raw_wildfire_hazard_mean, na.rm = TRUE),
-      park_unit = first(park_unit),
-      park_name = first(park_name),
+      park_unit = dplyr::first(park_unit),
+      park_name = dplyr::first(park_name),
       .by = wsd_source_id
     )
   
@@ -122,7 +122,7 @@ calc_fire_sensitivity <- function(water_supplies,
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     
     filename <- file.path(output_dir, paste0("fire_sensitivity_", Sys.Date(), ".csv"))
-    write_csv(final_results, filename)
+    readr::write_csv(final_results, filename)
     
     if (verbose) {
       message("Results saved to: ", filename)
