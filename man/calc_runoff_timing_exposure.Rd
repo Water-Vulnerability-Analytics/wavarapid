@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_runoff_timing_exposure.R
 \name{calc_runoff_timing_exposure}
 \alias{calc_runoff_timing_exposure}
-\title{Calculate Runoff Timing Exposure Indicator (Center-of-Timing)}
+\title{Runoff timing exposure: projected shift in the center of timing}
 \usage{
 calc_runoff_timing_exposure(
   water_supplies,
@@ -18,56 +18,138 @@ calc_runoff_timing_exposure(
 )
 }
 \arguments{
-\item{water_supplies}{An \code{sf} object with a \code{wsd_source_id} column.}
+\item{water_supplies}{sf object. The water supplies, with a
+\code{wsd_source_id} column, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Only their IDs
+are used, to pick rows from the processed files. Required.}
 
-\item{runoff_data}{Character. Directory of processed LOCA2 MWBM monthly
-runoff parquet files.}
+\item{runoff_data}{String. The folder of processed runoff parquet files
+from \code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}. Stops with an error if no files are left
+after the \code{hindcast} filter. Default:
+\code{rapid/inputs/loca2_runoff_water_supplies} in the shared data folder,
+see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{hindcast}{Logical. If \code{TRUE}, blends model historical runs with
-overlapping scenario data for the historical period; if \code{FALSE}, uses
-training data supplemented with modeled data.}
+\item{hindcast}{Logical. Where the historical period comes from.
+\itemize{
+\item \code{TRUE}: each model's own historical run, so the shift is measured
+within each model. Historical years after the historical run ends
+(2014) come from the same model's scenario run. The training file is
+not read.
+\item \code{FALSE}: the Jay Alder MWBM training run, the same baseline for every
+model. Historical years after it ends come from each model's scenario
+run. Only the training file and the \code{2015-2100} scenario files are
+read.
+}
 
-\item{historical, future}{Character length-2 vectors of start/end years ("YYYY").}
+Default: \code{TRUE}.}
 
-\item{water_year}{Logical. If \code{TRUE}, uses water years (Oct--Sep). CT is
-defined on the water year, so this should normally be TRUE.}
+\item{historical}{Character or numeric vector of 2 years, e.g.
+\code{c(1980, 2010)}. The first and last year of the historical period.
+Required.}
 
-\item{save, output_dir, verbose}{As in the sibling exposure functions.}
+\item{future}{Character or numeric vector of 2 years, e.g.
+\code{c(2035, 2065)}. The first and last year of the future period. Required.}
+
+\item{water_year}{Logical. How months are grouped into years. CT is
+defined on the water year, so this should normally be \code{TRUE}.
+\itemize{
+\item \code{TRUE}: water years, October to September, labelled by the year they
+end in.
+\item \code{FALSE}: calendar years. The month angles still start in October.
+}
+
+Default: \code{TRUE}.}
+
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{runoff_timing_exposure_<date>.csv}, named with today's
+date, to \code{output_dir}, creating the folder if needed. Stops with an
+error if \code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
+
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: shows a progress bar over the files and messages with the run
+time and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-A tibble with one row per water supply / park unit containing the
-selected timing-change magnitude, dominant direction, model-agreement
-fraction, and standardized magnitude indicators.
-A secondary \code{alt_timing} set reports the p90 absolute change and the
-fraction of models agreeing with the direction of that selected p90 member.
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit} and:
+\itemize{
+\item \code{runoff_timing_change_direction}: \code{"earlier"} or \code{"later"};
+\item \code{raw_runoff_timing_change_magnitude}: the size of the selected shift,
+in days;
+\item \code{raw_runoff_timing_direction_agreement_fraction}: the fraction (0-1)
+of model runs that shift in that direction;
+\item \code{runoff_alt_timing_change_direction},
+\code{raw_runoff_alt_timing_change_magnitude} and
+\code{raw_runoff_alt_timing_direction_agreement_fraction}: the same for the
+run closest to the 90th percentile of the absolute shift;
+\item \verb{norm_*} and \verb{rank_*} versions of the two magnitudes from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}} (a larger shift gets a higher score).
+}
 }
 \description{
-Computes a change-in-runoff-timing exposure metric for NPS water supplies
-using LOCA2-driven MWBM monthly runoff outputs. Timing is measured with a
-\strong{circular center of timing (CT)}, the flow-weighted temporal centroid of
-the annual hydrograph. The circular calculation follows the center-of-timing
-concept of Stewart, Cayan & Dettinger (2005, J. Climate) while avoiding an
-artificial discontinuity at the September-October water-year boundary. CT is
-the standard runoff-timing metric in the western-US snowmelt literature
+Calculates how much the timing of annual runoff at each water supply
+shifts between a historical and a future period, from LOCA2-driven MWBM
+monthly runoff. Timing is measured with the circular center of timing
+(CT), the flow-weighted centroid of the year's hydrograph. CT is the
+standard runoff timing metric in the western US snowmelt literature
 (Stewart et al. 2005; McCabe & Clark 2005; Regonda et al. 2005; Hidalgo et
-al. 2009; Dudley et al. 2017).
-}
-\details{
-For each water year and each GCM/SSP/run, monthly runoff totals are placed at
-their month-midpoint angles and combined as weighted vectors. CT is the angle
-of the resulting vector, expressed as an approximate day of water year.
+al. 2009; Dudley et al. 2017); the circular form avoids a jump at the
+September-October water-year boundary.
 
-For each site, the direction supported by the most model realizations is
-selected. The signed p10 shift is used when earlier timing is dominant and
-the signed p90 shift is used when later timing is dominant. The absolute
-value of that selected shift is the exposure magnitude. The output also
-reports the selected direction and the fraction of valid realizations that
-agree with it.
+For each year and model run, each month's runoff total is placed at the
+angle of the month's midpoint and the months are combined as weighted
+vectors; CT is the angle of the result, as a day of the water year. Only
+years with all 12 months are used. The historical and future CT are
+circular means over their years, and the shift is future minus historical
+in days (negative = earlier).
+
+For each site, the direction (earlier or later) that most model runs show
+is selected, and the shift of the run closest to the 10th percentile
+(earlier) or 90th percentile (later) is used. On an even split, the tail
+with the larger absolute shift is used. The size of that shift is the
+exposure. A second set (\code{alt_timing}) uses the run closest to the 90th
+percentile of the absolute shift, whatever its direction.
+}
+\examples{
+\dontshow{if (interactive() && dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_runoff_water_supplies"))) withAutoprint(\{ # examplesIf}
+# Reads every processed runoff file (about 4 GB), so it takes several
+# minutes even for one park
+ws <- wavacore::get_wsd(park = "ROMO")
+timing_exp <- calc_runoff_timing_exposure(ws,
+                                          historical = c(1980, 2010),
+                                          future = c(2035, 2065))
+timing_exp
+\dontshow{\}) # examplesIf}
 }
 \references{
-Stewart, I.T., Cayan, D.R., & Dettinger, M.D. (2005). Changes toward earlier
-streamflow timing across western North America. J. Climate, 18, 1136-1155.
-Dudley, R.W., Hodgkins, G.A., McHale, M.R., Kolian, M.J., & Renard, B. (2017).
-Trends in snowmelt-related streamflow timing in the conterminous United
-States. J. Hydrology, 547, 208-221.
+Stewart, I.T., Cayan, D.R., & Dettinger, M.D. (2005). Changes toward
+earlier streamflow timing across western North America. J. Climate, 18,
+1136-1155.
+
+Dudley, R.W., Hodgkins, G.A., McHale, M.R., Kolian, M.J., & Renard, B.
+(2017). Trends in snowmelt-related streamflow timing in the conterminous
+United States. J. Hydrology, 547, 208-221.
+}
+\seealso{
+\code{\link[=calc_runoff_exposure]{calc_runoff_exposure()}} for the change in amount;
+\code{\link[=calc_precip_timing_exposure]{calc_precip_timing_exposure()}} for precipitation timing;
+\code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}, which makes the input files.
 }

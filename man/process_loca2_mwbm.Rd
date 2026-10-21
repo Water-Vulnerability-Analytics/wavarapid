@@ -2,7 +2,7 @@
 % Please edit documentation in R/process_loca2_mwbm.R
 \name{process_loca2_mwbm}
 \alias{process_loca2_mwbm}
-\title{Process NetCDF files for LOCA2 water balance data extraction}
+\title{Extract LOCA2 / MWBM values at water supplies from a NetCDF file}
 \usage{
 process_loca2_mwbm(
   nc_path,
@@ -15,28 +15,93 @@ process_loca2_mwbm(
 )
 }
 \arguments{
-\item{nc_path}{path to NetCDF files - found in wava_data_path("all", "loca2_mwbm/")}
+\item{nc_path}{String. Path to one NetCDF file, usually from
+\code{all/loca2_mwbm} in the shared data folder. Required.}
 
-\item{water_supplies}{sf object with point locations}
+\item{water_supplies}{sf object. The water supplies, as points with
+\code{wsd_source_id} and \code{park_unit} columns, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}.
+They are reprojected to the file's CRS if needed. Required.}
 
-\item{var}{character, variable name to extract. Supported values include
-\code{"aet"}, \code{"deficit"}, \code{"pet"}, \code{"runoff"}, \code{"snow"}/\code{"swe"},
-\code{"stor"}, \code{"pr"}, \code{"tas"}, \code{"tasmin_tavg"}, and \code{"tasmax_tavg"}.}
+\item{var}{String. The variable to extract: \code{"aet"}, \code{"deficit"}, \code{"pet"},
+\code{"runoff"}, \code{"snow"}, \code{"swe"}, \code{"stor"}, \code{"pr"}, \code{"pr_tavg"}, \code{"tas"},
+\code{"tasmin_tavg"} or \code{"tasmax_tavg"}. Some are read under another name
+inside the file:
+\itemize{
+\item \code{"pr"} is read as \code{pr_tavg}, except in the Jay Alder ("alder") files;
+\code{pr_tavg} is read as \code{PRCP} in the \code{livneh_unsplit_precip} files.
+\item \code{"tasmin_tavg"} and \code{"tasmax_tavg"} are read as \code{Tmin} and \code{Tmax} in
+the "lusu" files.
+\item \code{"swe"} is read as \code{snow}.
+}
 
-\item{historical}{Character vector of length 2 giving the start and end dates
-(in \code{"YYYY-MM-DD"} format) that defines the "historical" period.
-Defaults to \code{c("1980-01-01", "2024-12-31")}.}
+Stops with an error if \code{var} isn't supported or the variable isn't in
+the file. Required.}
 
-\item{future}{Character vector of length 2 giving the start and end dates
-(in \code{"YYYY-MM-DD"} format) that defines the "future" period.
-Defaults to \code{c("2035-01-01", "2065-12-31")}.}
+\item{historical}{Character vector of 2 dates, \code{"YYYY-MM-DD"}. The start
+and end of the historical window. Only applied when the file's time
+units are "days since ..."; otherwise every time step is kept. Default:
+\code{c("1980-01-01", "2024-12-31")}.}
 
-\item{output_dir}{Directory to save the extracted CSV output files.}
+\item{future}{Character vector of 2 dates, \code{"YYYY-MM-DD"}. The start and
+end of the future window, applied the same way as \code{historical}. If no
+time step falls in either window, the function writes nothing and
+returns \code{NULL} with a message. Default: \code{c("2035-01-01", "2065-12-31")}.}
 
-\item{grab_nearest}{Logical. If \code{TRUE}, sites whose original 3 x 3
-neighborhood contains no finite values are recentered on the nearest grid
-cell with finite data within 50 km. Defaults to \code{FALSE}.}
+\item{output_dir}{String. The folder the parquet file is written to,
+created if it doesn't exist. Required.}
+
+\item{grab_nearest}{Logical. What to do when none of a site's 3 x 3 cells
+has data (e.g. a coastal site over water).
+\itemize{
+\item \code{TRUE}: moves the block to the nearest cell with data within 50 km and
+uses its 3 x 3 neighborhood instead. Sites with no data within 50 km
+keep \code{NA}.
+\item \code{FALSE}: keeps the site with \code{NA} values.
+}
+
+Default: \code{FALSE}.}
+}
+\value{
+\code{NULL}, invisibly. Called for the parquet file it writes.
 }
 \description{
-Process NetCDF files for LOCA2 water balance data extraction
+Reads one LOCA2 or MWBM (monthly water balance model) NetCDF file and
+writes the values around each water supply to a parquet file. Run it once
+per file; the \verb{calc_*()} climate indicators read the folder of parquet
+files.
+
+For each water supply it finds the nearest grid cell and keeps the 3 x 3
+block of cells around it (fewer at the grid edge). It keeps the time steps
+in the \code{historical} and \code{future} windows and converts units:
+\itemize{
+\item precipitation stored as a flux (not \code{"mm"}) becomes monthly totals in mm
+(multiplied by 86400 and the days in the month);
+\item temperatures in kelvin become degrees C;
+\item daily Livneh precipitation is summed to monthly totals.
+}
+
+The output file is \verb{<nc file name>.parquet} in \code{output_dir}
+(\verb{<nc file name>_Tmin.parquet} or \verb{_Tmax.parquet} for the "lusu"
+temperature files), with one row per water supply, grid cell and time step
+and columns \code{wsd_source_id}, \code{park_unit}, \code{time_units}, \code{nc_file},
+\code{cell_lat}, \code{cell_lon}, \code{date} and \code{value}. An existing file is replaced.
+}
+\examples{
+\dontshow{if (interactive() && dir.exists(wavacore::wava_data_path("all", "loca2_mwbm"))) withAutoprint(\{ # examplesIf}
+# One runoff file is about 0.5 GB, so this takes a few minutes
+ws <- wavacore::get_wsd(park = "ZION")
+nc <- wavacore::wava_data_path("all", "loca2_mwbm",
+                               "runoff_MWBM_LOCA2.ACCESS-CM2.ssp245.r1i1p1f1_2015-2100.nc")
+out_dir <- file.path(tempdir(), "loca2_runoff")
+process_loca2_mwbm(nc, ws, var = "runoff",
+                   historical = c("1979-01-01", "2014-12-31"),
+                   future = c("2015-01-01", "2100-12-31"),
+                   output_dir = out_dir, grab_nearest = TRUE)
+head(arrow::read_parquet(list.files(out_dir, full.names = TRUE)[1]))
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_runoff_exposure]{calc_runoff_exposure()}}, \code{\link[=calc_precip_exposure]{calc_precip_exposure()}},
+\code{\link[=calc_swe_exposure]{calc_swe_exposure()}}, \code{\link[=calc_temp_exposure]{calc_temp_exposure()}}, \code{\link[=process_drought_data]{process_drought_data()}}
+and \code{\link[=calc_loca2_change_summary]{calc_loca2_change_summary()}}, which read the parquet files.
 }

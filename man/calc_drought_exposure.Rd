@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_drought_exposure.R
 \name{calc_drought_exposure}
 \alias{calc_drought_exposure}
-\title{Calculate Drought Exposure Indicator}
+\title{Drought exposure: projected change in SPEI}
 \usage{
 calc_drought_exposure(
   water_supplies,
@@ -19,53 +19,127 @@ calc_drought_exposure(
 )
 }
 \arguments{
-\item{water_supplies}{An \code{sf} object containing water supply locations.
-Must include \code{wsd_source_id} and \code{park_unit}.}
+\item{water_supplies}{sf object. The water supplies, with \code{wsd_source_id}
+and \code{park_unit} columns, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Only their IDs
+are used, to pick rows from \code{drought_data}. Stops with an error if none
+match. Required.}
 
-\item{drought_data}{Character. Path to joined monthly drought parquet created
-by \code{process_drought_data()}.}
+\item{drought_data}{String. Path to the monthly drought parquet file from
+\code{\link[=process_drought_data]{process_drought_data()}}. Stops with an error if it lacks the columns
+that function writes. Default:
+\verb{rapid/inputs/loca2_drought_monthly_1980-2010_2035-2065_hindcast-TRUE.parquet}
+in the shared data folder (about 1.3 GB), see
+\code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{spei_scale}{Positive integer. Accumulation scale in months passed to
-\code{SPEI::spei()}. Default is \code{12}.}
+\item{spei_scale}{Integer. The SPEI accumulation scale in months, passed
+to \code{\link[SPEI:spei]{SPEI::spei()}}. Each period is read with \code{spei_scale - 1} extra
+months before it so its first month has a full window. Must be a whole
+number of at least 1. Default: \code{12}.}
 
-\item{spei_inf_cap}{Numeric. Absolute cap used to replace \code{Inf} and \code{-Inf}
-SPEI values before calculating mean SPEI. Default is \code{4}.}
+\item{spei_inf_cap}{Numeric. The absolute value that replaces \code{Inf} and
+\code{-Inf} SPEI values before the means are taken. Must be positive.
+Default: \code{4}.}
 
-\item{historical}{Character vector of length 2 giving the historical period,
-e.g. \code{c("1995", "2024")}.}
+\item{historical}{Character or numeric vector of 2 years, e.g.
+\code{c(1980, 2010)}. The first and last year of the historical period. It
+must be covered by \code{drought_data}. Required.}
 
-\item{future}{Character vector of length 2 giving the future period,
-e.g. \code{c("2035", "2065")}.}
+\item{future}{Character or numeric vector of 2 years, e.g.
+\code{c(2035, 2065)}. The first and last year of the future period. It must be
+covered by \code{drought_data}. Required.}
 
-\item{water_year}{Logical. If \code{TRUE}, reporting windows run Oct-Sep.}
+\item{water_year}{Logical. How months are grouped into periods.
+\itemize{
+\item \code{TRUE}: each period runs from October of the year before the first
+year to September of the last year.
+\item \code{FALSE}: each period runs from January of the first year to December
+of the last year.
+}
 
-\item{save}{Logical. If \code{TRUE}, writes results to disk.}
+Default: \code{TRUE}.}
 
-\item{output_dir}{Character. Output directory when \code{save = TRUE}.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{drought_exposure_<date>.csv}, named with today's date,
+to \code{output_dir}, creating the folder if needed. Stops with an error if
+\code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{verbose}{Logical. If \code{TRUE}, prints progress messages.}
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints the periods and windows used, progress, the run time and
+the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-A tibble with drought exposure indicators by water supply, including
-SPEI fit diagnostics for capped \code{Inf} and \code{-Inf} monthly values.
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit} and:
+\itemize{
+\item \code{raw_spei_change_p10}, \verb{_p50}, \verb{_p90}: the change in mean SPEI of the
+model run closest to that percentile;
+\item \code{raw_spei_models_showing_decrease}: the percentage of model runs that
+get drier; \code{raw_spei_model_count}: the number of runs;
+\item \verb{raw_spei_*inf*} columns: counts and percentages of capped \code{Inf} and
+\code{-Inf} months, over all fitted months, the reporting months, and each
+period, and the percentage of runs with any;
+\item \verb{norm_*} and \verb{rank_*} versions of the SPEI change (inverted, so the
+largest drying gets the highest score) and of
+\code{raw_spei_models_showing_decrease}, from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}.
+}
 }
 \description{
-Computes projected change in drought conditions for NPS water supplies using
-the joined monthly drought output from \code{process_drought_data()}.
+Calculates the change in drought conditions at each water supply between
+a historical and a future period, using the Standardized
+Precipitation-Evapotranspiration Index (SPEI) of the monthly climatic water
+balance (precipitation minus PET) from \code{\link[=process_drought_data]{process_drought_data()}}.
+
+For each model run (model, scenario and ensemble member) and site:
+\enumerate{
+\item SPEI is fitted with \code{\link[SPEI:spei]{SPEI::spei()}} at \code{spei_scale} months, using the
+historical reporting months as the reference distribution. Future
+months are scored against that same historical reference.
+\item \code{Inf} and \code{-Inf} SPEI values are capped at \code{spei_inf_cap} and
+\code{-spei_inf_cap}; how many were capped is kept as diagnostics.
+\item The change is the mean future SPEI minus the mean historical SPEI
+(negative = drier). A period needs SPEI for at least 90\% of its months.
 }
-\details{
-Drought is characterized by the Standardized Precipitation-Evapotranspiration
-Index (SPEI), calculated at a user-specified accumulation scale from monthly
-climatic water balance: precipitation minus PET.
 
-This function assumes historical/future assembly has already been handled
-upstream by \code{process_drought_data()}. Therefore, \code{hindcast} is intentionally
-not an argument here. Use \code{process_drought_data(hindcast = TRUE)} or
-\code{process_drought_data(hindcast = FALSE)} to choose the baseline construction.
-
-Infinite SPEI values are directionally meaningful but numerically unbounded.
-Therefore, \code{-Inf} values are capped at \code{-spei_inf_cap} and \code{Inf} values are
-capped at \code{spei_inf_cap} before calculating mean historical/future SPEI.
-Counts of capped positive and negative infinite values are retained as
-diagnostics in the final output.
+The ensemble is then summarized per site: the runs closest to the 10th,
+50th and 90th percentiles of the change, and the percentage of runs that
+get drier. How the historical period was built (model historical runs or
+the training run) is decided upstream by \code{process_drought_data(hindcast = ...)}, so there is no \code{hindcast} argument here.
+}
+\examples{
+\dontshow{if (interactive() && file.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_drought_monthly_1980-2010_2035-2065_hindcast-TRUE.parquet"))) withAutoprint(\{ # examplesIf}
+# The default drought file is about 1.3 GB, and SPEI is fitted for every
+# model run, so this takes several minutes
+ws <- wavacore::get_wsd(park = "ZION")
+drought_exp <- calc_drought_exposure(ws,
+                                     spei_scale = 12,
+                                     spei_inf_cap = 3,
+                                     historical = c(1980, 2010),
+                                     future = c(2035, 2065))
+drought_exp[, c("wsd_source_id", "raw_spei_change_p10", "raw_spei_change_p50",
+                "raw_spei_models_showing_decrease")]
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=process_drought_data]{process_drought_data()}}, which makes \code{drought_data};
+\code{\link[=calc_drought_sensitivity]{calc_drought_sensitivity()}} for the historical trend.
 }

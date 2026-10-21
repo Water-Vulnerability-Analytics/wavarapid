@@ -1,45 +1,81 @@
-#' Calculate Groundwater Depth Sensitivity Indicator
+#' @title Groundwater sensitivity: depth to water
 #'
-#' Calculates depth-to-water sensitivity for all water supplies. For
-#' groundwater/spring `source_type` supplies, depth-to-water is taken from the
-#' WSD's recorded `well_depth`, assumed to sit 20% shallower than the well
-#' bottom (i.e. `well_depth * 0.8`), falling back to modeled water table depth
-#' (WTD) from `process_groundwater_depth()` (CONUS-wide RF WTD model) where
-#' `well_depth` is missing. All other (non-groundwater/spring) source types
-#' are hardcoded to a depth-to-water of 0. A shallower water table means higher
-#' sensitivity, so `invert = TRUE` is used when standardizing the raw
-#' (continuous) depth.
+#' @description
+#' Gives each water supply a depth to water, in meters:
+#' * groundwater and spring sources (`source_type` containing
+#'   "groundwater" or "spring", lowercase): the WSD's recorded `well_depth`
+#'   (feet) times 0.8, assuming the water sits 20% above the well bottom,
+#'   capped at 200 m; where there is no well depth, the modeled water table
+#'   depth from [process_groundwater_depth()];
+#' * every other source type: 0.
 #'
-#' The raw depth is also binned into a DRASTIC-style depth-to-water sensitivity
-#' score, using thresholds of 1.5/4.5/9.1/15.2/22.9/30.5 m (5/15/30/50/75/100 ft)
-#' mapped to scores of 1/.9/.7/.5/.3/.2/.1. Unlike the raw depth, the bin score
-#' is not inverted when standardized. A depth of 0 (non-groundwater/spring
-#' source types) naturally falls into the top bin (1) under these thresholds.
+#' A shallower water table means higher sensitivity, so the depth is
+#' inverted when standardized. The depth is also binned into a DRASTIC-style
+#' score: 0-1.5 m = 1, 1.5-4.5 m = 0.9, 4.5-9.1 m = 0.7, 9.1-15.2 m = 0.5,
+#' 15.2-22.9 m = 0.3, 22.9-30.5 m = 0.2 and over 30.5 m = 0.1 (5, 15, 30, 50,
+#' 75 and 100 ft). The bin score is not inverted. Sources with a depth of 0
+#' fall in the top bin.
 #'
-#' Citation: Zenodo record 18504963,
-#' https://ngwa.onlinelibrary.wiley.com/doi/10.1111/gwat.13362
+#' Citations: Zenodo record 18504963,
+#' <https://ngwa.onlinelibrary.wiley.com/doi/10.1111/gwat.13362>; Aller, L.,
+#' Lehr, J.H., Petty, R., and Bennett, T. (1987). DRASTIC: A standardized
+#' system to evaluate groundwater pollution potential using hydrogeologic
+#' setting. Journal Geological Society of India, 29(1), 23-37,
+#' <https://doi.org/10.17491/jgsi/1987/290112>.
 #'
-#' Citation: Aller, Linda, Jay H. Lehr, Rebecca Petty, and Truman Bennett.
-#' "DRASTIC: A Standardized System to Evaluate Groundwater Pollution Potential
-#' Using Hydrogeologic Setting." Journal Geological Society of India 29, no. 1
-#' (1987): 23-37. https://doi.org/10.17491/jgsi/1987/290112.
+#' @param water_supplies sf object. The water supplies, with
+#'   `wsd_source_id`, `park_unit`, `park_name`, `source_type` and
+#'   `well_depth` (feet) columns, e.g. from [wavacore::get_wsd()]. Stops with
+#'   an error if `source_type` or `well_depth` is missing. Repeated
+#'   `wsd_source_id`s are dropped. Required.
+#' @param groundwater_data String or data frame. The modeled water table
+#'   depths, with `wsd_source_id` and `wtd_point_m` columns.
+#'   * String: path to `wtd_all_sites.csv` from [process_groundwater_depth()],
+#'     e.g. `rapid/inputs/groundwater_depth/wtd_all_sites.csv` in the shared
+#'     data folder.
+#'   * Data frame: the same table, already read.
 #'
-#' @param water_supplies sf object with water supply locations, including
-#'   `wsd_source_id`, `park_unit`, `park_name`, `source_type`, `well_depth`
-#'   (recorded well depth in feet).
-#' @param groundwater_data character path to `wtd_all_sites.csv` (output of
-#'   `process_groundwater_depth()`), or a data.frame with the same columns.
-#' @param save logical, whether to save output
-#' @param output_dir character, directory path for saving files
-#' @param verbose logical, whether to show progress messages
+#'   Required.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `groundwater_depth_sensitivity_<date>.csv`, named with
+#'     today's date, to `output_dir`, creating the folder if needed. Stops
+#'     with an error if `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
-#' @return tibble with water supply ID, park info, `raw_groundwater_depth_source`
-#'   ("well_depth", "modeled_wtd", or "surface_zero", indicating which
-#'   source was used), and raw/norm/rank columns for `raw_groundwater_depth_m`
-#'   (continuous depth, inverted) and `raw_groundwater_depth_bin` (DRASTIC-style
-#'   bin score, not inverted)
-
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints messages with the run time and the path of the saved
+#'     file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit`, `park_name`, `raw_groundwater_depth_m`,
+#'   `raw_groundwater_depth_source` (`"well_depth"`, `"modeled_wtd"` or
+#'   `"surface_zero"`), `raw_groundwater_depth_bin`, and the `norm_` and
+#'   `rank_` versions of the depth (inverted) and the bin score (not
+#'   inverted) from [add_standardized_indicators()].
 #' @export
+#' @seealso [process_groundwater_depth()], which makes `wtd_all_sites.csv`;
+#'   [calc_vulnerability_index()], which uses the depth as
+#'   `sen_source_type`.
+#' @examplesIf file.exists(wavacore::wava_data_path("rapid", "inputs", "groundwater_depth", "wtd_all_sites.csv"))
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' gw_sen <- calc_groundwater_depth_sensitivity(
+#'   ws,
+#'   groundwater_data = wavacore::wava_data_path("rapid", "inputs", "groundwater_depth",
+#'                                               "wtd_all_sites.csv")
+#' )
+#' gw_sen[, c("wsd_source_id", "raw_groundwater_depth_m",
+#'            "raw_groundwater_depth_source", "raw_groundwater_depth_bin")]
+
 calc_groundwater_depth_sensitivity <- function(water_supplies,
                                                groundwater_data,
                                                save = FALSE,

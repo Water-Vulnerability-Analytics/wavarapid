@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_inundation_exposure.R
 \name{calc_inundation_exposure}
 \alias{calc_inundation_exposure}
-\title{Calculate Sea Level Rise Inundation Exposure Indicator}
+\title{Sea level rise exposure: change in inundated area}
 \usage{
 calc_inundation_exposure(
   ws_scenarios,
@@ -16,47 +16,107 @@ calc_inundation_exposure(
 )
 }
 \arguments{
-\item{ws_scenarios}{sf object of ALL water supplies right-joined onto buffered
-coastal SLR scenarios. Coastal rows have buffer polygon geometry and SLR
-scenario columns (e.g. \code{inun_region}, \code{ref_file}, \code{proj_file},
-\code{buffer_km}); non-coastal rows have NA geometry and NA SLR columns. Must
-include columns \code{wsd_source_id}, \code{park_unit}, \code{inun_region},
-\code{ref_file}, and \code{proj_file} (NAs acceptable for non-coastal rows).}
+\item{ws_scenarios}{sf object. Every water supply, with the buffered
+scenarios from \code{\link[=process_inundation_data]{process_inundation_data()}} joined on: coastal rows have
+the buffer polygon and the scenario columns, other rows have empty
+geometry and \code{NA}s (see the example). Needs \code{wsd_source_id},
+\code{park_unit}, \code{buffer_km}, \code{inun_proj_mm}, \code{inun_region},
+\code{inun_proj_closest_mm}, \code{depth_ft}, \code{depth_m}, \code{inun_surf_url},
+\code{proj_file}, \code{ref_file} and a geometry column named \code{geom} (as read
+from \code{buff_ws_inun_regions.gpkg}). Required.}
 
-\item{inundation_raster_data_dir}{character, path to inundation surface raster
-state subdirectories}
+\item{inundation_raster_data_dir}{String. The folder with the downloaded
+rasters, in one subfolder per state (\verb{<state>/<file>}). Default:
+\code{rapid/inputs/coast_comp/Extent_Rasters} in the shared data folder,
+which is where \code{\link[=process_inundation_data]{process_inundation_data()}} downloads them, see
+\code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{coast_distances}{character path to coastal_site_geometry.csv
-produced by \code{process_coastal_geometry()} (only \code{coast_dist_m} is used
-here). Water supplies farther than 50 km from the
-coast (already \code{NA}'d in this file) have every indicator column set to
-\code{NA}, matching the convention in \code{calc_swi_exposure()}/\code{calc_storm_surge_exposure()}.}
+\item{coast_distances}{String. Path to \code{coastal_site_geometry.csv} from
+\code{\link[=process_coastal_geometry]{process_coastal_geometry()}}; only \code{coast_dist_m} is used. Stops with an
+error if the file doesn't exist. Default:
+\code{rapid/inputs/coast_comp/coastal_site_geometry.csv} in the shared data
+folder.}
 
-\item{save}{logical, whether to save output}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{inundation_exposure_<date>.csv}, named with today's date, to
+\code{output_dir}, creating the folder if needed. Stops with an error if
+\code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{output_dir}{character, directory path for saving files}
+Default: \code{FALSE}.}
 
-\item{verbose}{logical, whether to show progress messages}
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: shows a progress bar over the raster files and messages with
+the run time and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble with water supply ID, buffer size, SLR projection metadata,
-raw/normalized/ranked coverage indicators for reference and projected
-scenarios (\code{raw/norm/rank_coverage_pct_ref}, \code{raw/norm/rank_coverage_pct_proj}),
-raw/normalized/ranked cell change and percentage point change
-(\code{raw/norm/rank_cell_change}, \code{raw/norm/rank_pct_point_change}),
-an \code{inun_change} category (\code{no_to_no}, \code{no_to_some}, \code{some_to_some},
-\code{some_to_no}), and \code{inun_centroid_change} (categorical: \code{no_to_no},
-\code{no_to_yes}, \code{yes_to_yes}, \code{yes_to_no} — whether the water supply centroid
-point was inundated in the reference and/or projected scenario). All
-indicator columns are \code{NA} for water supplies more than 50 km from the coast.
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit}, \code{buffer_km}, \code{inun_proj_mm}, \code{inun_proj_closest_mm},
+\code{depth_ft} and:
+\itemize{
+\item \code{raw_coverage_pct_ref} and \code{raw_coverage_pct_proj}: the percentage of
+the buffer flooded now and under the projection;
+\item \code{raw_cell_change}: the change in flooded cells (projection minus now);
+\item \code{raw_pct_point_change}: the change in percentage points;
+\item \verb{norm_*} and \verb{rank_*} versions of those four, from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}};
+\item \code{inun_change}: \code{"no_to_no"}, \code{"no_to_some"}, \code{"some_to_some"} or
+\code{"some_to_no"}, for the buffer;
+\item \code{inun_centroid_change}: \code{"no_to_no"}, \code{"no_to_yes"}, \code{"yes_to_yes"} or
+\code{"yes_to_no"}, for the water supply point.
+}
 }
 \description{
-Calculates inundation exposure for buffered water supply polygons using NOAA
-Sea Level Rise Viewer inundation surfaces. For each polygon, the function
-extracts flooded cell counts and percent coverage under both a reference
-(current) and a projected SLR scenario, then computes absolute cell change,
-percentage point change, and whether the water supply centroid itself becomes
-inundated. Sites whose buffer overlaps a single inundation tile are processed
-in batch via exactextractr; sites spanning multiple tiles are mosaicked and
-processed individually.
+Measures how much of each coastal water supply's 4 km buffer is flooded
+under the NOAA Sea Level Rise Viewer surfaces, now (0 ft) and under the
+projected 2050 sea level rise picked by \code{\link[=process_inundation_data]{process_inundation_data()}}. For
+each buffer it counts the flooded raster cells in both scenarios and
+calculates the change in cells and in percentage points, and whether the
+water supply point itself becomes inundated. Buffers within one raster
+tile are processed together with exactextractr; buffers that span
+several tiles are mosaicked and processed one at a time.
+
+Supplies with no scenario (no \code{proj_file}) and supplies more than 50 km
+from the coast (\code{coast_dist_m} is \code{NA} in \code{coast_distances}) get \code{NA} for
+every indicator. They are set to \code{NA} before standardizing, so they don't
+affect the scores of the coastal supplies.
+}
+\examples{
+\dontshow{if (interactive() && file.exists(wavacore::wava_data_path("rapid", "inputs", "coast_comp", "buff_ws_inun_regions.gpkg"))) withAutoprint(\{ # examplesIf}
+# The scenarios, joined onto the supplies of one coastal park, as in the
+# rapid workflow
+ws <- wavacore::get_wsd(park = "BISC")
+scenarios <- sf::st_read(wavacore::wava_data_path("rapid", "inputs", "coast_comp",
+                                                  "buff_ws_inun_regions.gpkg"),
+                         quiet = TRUE)
+scenarios <- scenarios[!is.na(scenarios$proj_file), names(scenarios) != "park_unit"]
+ws_ids <- sf::st_drop_geometry(ws)[, c("wsd_source_id", "park_unit")]
+ws_scenarios <- dplyr::right_join(scenarios, ws_ids, by = "wsd_source_id")
+
+slr_exp <- calc_inundation_exposure(ws_scenarios)
+slr_exp[, c("wsd_source_id", "raw_coverage_pct_ref", "raw_coverage_pct_proj",
+            "inun_change", "inun_centroid_change")]
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=process_inundation_data]{process_inundation_data()}}, which makes the scenarios and
+downloads the rasters; \code{\link[=process_coastal_geometry]{process_coastal_geometry()}};
+\code{\link[=calc_storm_surge_exposure]{calc_storm_surge_exposure()}} and \code{\link[=calc_swi_exposure]{calc_swi_exposure()}}, the other
+coastal indicators.
 }

@@ -1,21 +1,93 @@
-#' Calculate Snow Exposure Indicator
-#' Calculates peak SWE change vulnerability using LOCA2 climate model data and the MWBM.
+#' @title Snow exposure: projected change in annual peak snow water equivalent
 #'
-#' @param water_supplies sf object with water supply locations
-#' @param swe_data character vector of processed loca2 mwbm files
-#' @param hindcast logical, if TRUE uses hindcast climate data, if FALSE uses "real" climate data 
-#' @param historical Character vector of length 2 giving the start and end years
-#'   (in `"YYYY"` format) that defines the "historical" period.  
-#' @param future Character vector of length 2 giving the start and end years
-#'   (in `"YYYY"` format) that defines the "future" period.  
-#' @param water_year T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.
-#' @param save logical, whether to save output
-#' @param output_dir character, directory path for saving files
-#' @param verbose logical, whether to show progress messages
+#' @description
+#' Calculates the change in mean annual peak snow water equivalent (SWE) at
+#' each water supply between a historical and a future period, from
+#' LOCA2-driven MWBM (monthly water balance model) snow. Monthly SWE is
+#' averaged over each site's grid cells, and each year's peak is the highest
+#' monthly value. For each model run (model, scenario and
+#' ensemble member) the change is the future mean minus the historical mean,
+#' as a percentage of the historical mean.
 #'
-#' @return tibble with water supply ID, park info, and SWE exposure indicators
+#' The ensemble is then summarized per site: the runs closest to the 10th,
+#' 50th and 90th percentiles of the percent change, and the percentage of runs
+#' that show a decrease.
 #'
+#' @param water_supplies sf object. The water supplies, with a
+#'   `wsd_source_id` column, e.g. from [wavacore::get_wsd()]. Only their IDs
+#'   are used, to pick rows from the processed files, so they must be the IDs
+#'   the files were made with. Required.
+#' @param swe_data String. The folder of processed snow parquet files
+#'   from [process_loca2_mwbm()]. Stops with an error if no files are left
+#'   after the `hindcast` filter. Default:
+#'   `rapid/inputs/loca2_swe_water_supplies` in the shared data folder,
+#'   see [wavacore::wava_data_path()].
+#' @param hindcast Logical. Where the historical period comes from.
+#'   * `TRUE`: each model's own historical run, so the change is measured
+#'     within each model. Historical years after the historical run ends
+#'     (2014) come from the same model's scenario run. The training file is
+#'     not read.
+#'   * `FALSE`: the Jay Alder MWBM training run, the same baseline for every
+#'     model. Historical years after it ends (2014) come from each model's
+#'     scenario run. Only the training file and the `2015-2100` scenario
+#'     files are read.
+#'
+#'   Default: `TRUE`.
+#' @param historical Character or numeric vector of 2 years, e.g.
+#'   `c(1980, 2010)`. The first and last year of the historical period.
+#'   Required.
+#' @param future Character or numeric vector of 2 years, e.g.
+#'   `c(2035, 2065)`. The first and last year of the future period. Required.
+#' @param water_year Logical. How months are grouped into years.
+#'   * `TRUE`: water years, October to September, labelled by the year they
+#'     end in (water year 2010 is October 2009 to September 2010).
+#'   * `FALSE`: calendar years.
+#'
+#'   Default: `TRUE`.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `swe_exposure_<date>.csv`, named with today's date,
+#'     to `output_dir`, creating the folder if needed. Stops with an error if
+#'     `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
+#'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: shows a progress bar over the files and messages with the run
+#'     time and the path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit` and:
+#'   * `raw_swe_change_p10`, `_p50`, `_p90`: the percent change in mean
+#'     annual peak SWE of the model run closest to that percentile;
+#'   * `raw_swe_models_showing_decrease`: the percentage of model runs with a
+#'     decrease;
+#'   * `norm_*` and `rank_*` versions of both from
+#'     [add_standardized_indicators()]. The SWE change is inverted, so the
+#'     largest decrease gets the highest score.
 #' @export
+#' @seealso [calc_swe_sensitivity()] for the historical trend;
+#'   [calc_runoff_exposure()] and [calc_precip_exposure()] for the other
+#'   water supply variables; [process_loca2_mwbm()], which makes the input
+#'   files;
+#'   [calc_vulnerability_index()].
+#' @examplesIf interactive() && dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_swe_water_supplies"))
+#' # Reads every processed snow file (about 2.5 GB), so it takes several
+#' # minutes even for one park
+#' ws <- wavacore::get_wsd(park = "ROMO")
+#' swe_exp <- calc_swe_exposure(ws,
+#'                              historical = c(1980, 2010),
+#'                              future = c(2035, 2065))
+#' swe_exp
+
 calc_swe_exposure <- function(water_supplies,
                               swe_data = wavacore::wava_data_path("rapid", "inputs", "loca2_swe_water_supplies/"),
                               hindcast = TRUE,

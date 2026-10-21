@@ -1,27 +1,93 @@
-#' Process monthly drought-input climate data for water supplies
+#' @title Build the monthly precipitation and PET table for drought (SPEI)
 #'
-#' Reads monthly LOCA2 precipitation and PET parquet files,
-#' aggregates grid cells to site-month-model values, joins precip/PET by parsed
-#' model/ssp/run/month keys, and returns one monthly drought table ready for
-#' calc_drought_exposure().
+#' @description
+#' Reads the processed LOCA2 precipitation and PET parquet files (from
+#' [process_loca2_mwbm()]), averages the grid cells to one value per water
+#' supply, month and model run, joins precipitation and PET, and computes the
+#' climatic water balance (precipitation minus PET). The result is the input
+#' for [calc_drought_exposure()].
 #'
-#' Historical assembly:
-#' - hindcast = TRUE: GCM historical first, matching SSP fills missing months.
-#' - hindcast = FALSE: training/Livneh first, matching SSP fills missing months.
+#' Each historical and future window is padded with about two years of
+#' earlier months, more than a 12-month SPEI needs, so
+#' [calc_drought_exposure()] can trim to the accumulation scale it uses.
 #'
-#' @param water_supplies sf object with wsd_source_id.
-#' @param precip_data Directory containing processed precip parquet files.
-#' @param pet_data Directory containing processed PET parquet files.
-#' @param hindcast Logical. TRUE uses GCM historical baseline; FALSE uses training baseline.
-#' @param historical Character vector, e.g. c("1995", "2024").
-#' @param future Character vector, e.g. c("2035", "2065").
-#' @param water_year Logical. TRUE uses water-year reporting.
-#' @param output_dir Output directory.
-#' @param save Logical. Save joined monthly drought parquet?
-#' @param verbose Logical. Print progress messages?
+#' Within each model, scenario and run, months from the primary historical
+#' source come first; the matching SSP run fills historical months the
+#' primary source doesn't have.
 #'
-#' @return data.table of monthly drought data.
+#' @param water_supplies sf object. The water supplies, with a
+#'   `wsd_source_id` column, e.g. from [wavacore::get_wsd()]. Only their IDs
+#'   are used, to pick rows from the files. Required.
+#' @param precip_data String. The folder of processed precipitation parquet
+#'   files. Stops with an error if no files are left after the `hindcast`
+#'   filter. Default: `rapid/inputs/loca2_precipitation_water_supplies` in
+#'   the shared data folder, see [wavacore::wava_data_path()].
+#' @param pet_data String. The folder of processed PET parquet files, used
+#'   the same way. Default: `rapid/inputs/loca2_pet_water_supplies` in the
+#'   shared data folder.
+#' @param hindcast Logical. Where the historical months come from.
+#'   * `TRUE`: each model's own historical run (training and Livneh files are
+#'     left out). `source_type` is `"gcm_historical"`.
+#'   * `FALSE`: the training run, copied to every model, scenario and run
+#'     (only precipitation files whose names contain 2015, 2045, 2075 or
+#'     "training", and PET files with 2015-2100 or "training", are read).
+#'     `source_type` is `"training"`. Stops with an error if there are no
+#'     training rows.
+#'
+#'   Default: `TRUE`.
+#' @param historical Character or numeric vector of 2 years, e.g.
+#'   `c("1980", "2010")`. The first and last year of the historical period;
+#'   only the first 4 characters of each are used. Required.
+#' @param future Character or numeric vector of 2 years, e.g.
+#'   `c("2035", "2065")`. The first and last year of the future period.
+#'   Required.
+#' @param water_year Logical. How months are grouped into years.
+#'   * `TRUE`: water years, October to September, labelled by the year they
+#'     end in. The padding starts in March, two years before the first year.
+#'   * `FALSE`: calendar years. The padding starts in June, two years before
+#'     the first year.
+#'
+#'   Default: `TRUE`.
+#' @param output_dir String. The folder for the parquet file when
+#'   `save = TRUE`. Default: `rapid/inputs` in the shared data folder, which
+#'   is where [calc_drought_exposure()] looks by default.
+#' @param save Logical. Whether to write the table.
+#'   * `TRUE`: writes
+#'     `loca2_drought_monthly_<historical>_<future>_hindcast-<TRUE|FALSE>.parquet`
+#'     (e.g. `loca2_drought_monthly_1980-2010_2035-2065_hindcast-TRUE.parquet`)
+#'     to `output_dir`, creating the folder if needed.
+#'   * `FALSE`: writes nothing.
+#'
+#'   Default: `TRUE`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints each file as it is read, the saved path and the run
+#'     time.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A data.table, one row per water supply, model, scenario, run,
+#'   period and month, with columns `wsd_source_id`, `park_unit`, `ym` (first
+#'   day of the month), `year`, `month`, `analysis_year` (water or calendar
+#'   year), `drought_period` (`"historical"` or `"future"`), `input_window`
+#'   (`"reporting"` or `"padding"`), `reporting_period` (logical), `model`,
+#'   `ssp`, `run`, `monthly_precipitation`, `monthly_pet`,
+#'   `climatic_water_balance` (mm), `source_type`, `source_priority`,
+#'   `source_model`, `source_ssp` and `source_run`.
 #' @export
+#' @seealso [calc_drought_exposure()], which calculates SPEI from this table;
+#'   [process_loca2_mwbm()], which makes the parquet files it reads;
+#'   [calc_drought_sensitivity()] for the historical drought indicator.
+#' @examplesIf interactive() && dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_pet_water_supplies"))
+#' # Reads about 9 GB of processed precipitation and PET files, so it takes
+#' # a long time
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' drought_monthly <- process_drought_data(ws,
+#'                                         historical = c("1980", "2010"),
+#'                                         future = c("2035", "2065"),
+#'                                         save = FALSE)
+#' head(drought_monthly)
+
 process_drought_data <- function(water_supplies,
                                  precip_data = wavacore::wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/"),
                                  pet_data = wavacore::wava_data_path("rapid", "inputs", "loca2_pet_water_supplies/"),

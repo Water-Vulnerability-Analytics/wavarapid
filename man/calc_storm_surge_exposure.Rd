@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_storm_surge_exposure.R
 \name{calc_storm_surge_exposure}
 \alias{calc_storm_surge_exposure}
-\title{Calculate Storm Surge Exposure Indicator}
+\title{Storm surge exposure: projected change in the 10-year storm surge}
 \usage{
 calc_storm_surge_exposure(
   water_supplies,
@@ -15,44 +15,108 @@ calc_storm_surge_exposure(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with water supply point locations}
+\item{water_supplies}{sf object. The water supplies, as points with
+\code{wsd_source_id}, \code{park_unit} and \code{park_name} columns, e.g. from
+\code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Required.}
 
-\item{storm_surge_stations}{character path to the preprocessed storm
-surge GeoPackage produced by \code{process_storm_surge_data()}, or an sf
-object already loaded into memory}
+\item{storm_surge_stations}{String or sf object. The stations from
+\code{\link[=process_storm_surge_data]{process_storm_surge_data()}}.
+\itemize{
+\item String: path to \code{storm_surge_RP10_muis_2023.gpkg}, e.g. in
+\code{rapid/inputs/storm_surge} in the shared data folder. Stops with an
+error if the file doesn't exist.
+\item sf object: the stations, already read.
+}
 
-\item{coast_geometry}{character path to coastal_site_geometry.csv (columns
-include \code{coast_dist_m} and \code{coast_elev_m}) produced by
-\code{process_coastal_geometry()}}
+Required.}
 
-\item{save}{logical, whether to save output to a CSV file}
+\item{coast_geometry}{String or data frame. The distance to the coast
+and elevation of each supply (\code{coast_dist_m}, \code{coast_elev_m}), from
+\code{\link[=process_coastal_geometry]{process_coastal_geometry()}}, joined by \code{wsd_source_id}, \code{park_unit}
+and \code{park_name}.
+\itemize{
+\item String: path to \code{coastal_site_geometry.csv}. Stops with an error if
+the file doesn't exist.
+\item Data frame: the same table, already read.
+}
 
-\item{output_dir}{character, directory path for saving files}
+Default: \code{rapid/inputs/coast_comp/coastal_site_geometry.csv} in the
+shared data folder, see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{verbose}{logical, whether to show progress messages}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{storm_surge_exposure_<date>.csv}, named with today's date, to
+\code{output_dir}, creating the folder if needed. Stops with an error if
+\code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
+
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints each step, the run time and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble with raw and standardized storm surge exposure indicators
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit}, \code{park_name}, \code{coast_elev_m} and:
+\itemize{
+\item \code{raw_surge_change_max}: the weighted change in surge (meters);
+\item \code{raw_surge_pct_change_max}: the weighted percent change;
+\item \verb{norm_*} and \verb{rank_*} versions of both from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}. A larger increase gets a higher score.
+}
 }
 \description{
-Assigns each NPS water supply the worst-case-model 10-year return period
-storm surge change (future 2021-2050 minus reference 1985-2014, meters) from
-the nearest coastal station in the Muis et al. (2023) CMIP6 dataset,
-discounted by a joint coastal-proximity / low-elevation weight.
-}
-\details{
-\itemize{
-\item CMCC-CM2-VHR4 is excluded from the worst-case model pool.
-\item Water supplies whose nearest surge station is >50 km away, or that are
-more than 50 km from the CUSP coastline, receive NA.
-\item Distance/elevation weight: \code{sqrt((dist_weight^2 + elev_weight^2) / 2)},
-with \code{elev_weight} capped at the 10 m Low Elevation Coastal Zone
-threshold (McGranahan et al. 2007).
-}
+Gives each coastal water supply the projected change in the 10-year
+return period storm surge at its nearest station in the Muis et al. (2023)
+CMIP6 dataset: future (2021-2050) minus reference (1985-2014), in meters
+and percent. At each station the worst-case model (the largest percent
+change) is used; CMCC-CM2-VHR4 is left out because its results are
+spurious.
 
-See \code{Explore/explore_updated_storm_surge.Rmd} for the reasoning behind the
-worst-case selection, the CMCC-CM2-VHR4 exclusion, and the weighting scheme.
+The change is then multiplied by a weight for how close the supply is to
+the coast and how low it is:
+\code{sqrt((dist_weight^2 + elev_weight^2) / 2)}, where \code{dist_weight} falls
+from 1 at the shoreline to 0 at 50 km and \code{elev_weight} from 1 at sea
+level to 0 at 10 m (the Low Elevation Coastal Zone, McGranahan et al.
+2007).
+
+Supplies more than 50 km from the coast, or more than 50 km from the
+nearest station, get \code{NA}. See \code{Explore/explore_updated_storm_surge.Rmd}
+in \code{nps_water_vulnerability} for the reasoning behind the worst-case
+choice, the model exclusion and the weights.
 
 Source: Muis et al. (2023), "Global Projections of Storm Surges Using
 High-Resolution CMIP6 Climate Models", Earth's Future.
+}
+\examples{
+\dontshow{if (file.exists(wavacore::wava_data_path("rapid", "inputs", "storm_surge", "storm_surge_RP10_muis_2023.gpkg"))) withAutoprint(\{ # examplesIf}
+ws <- wavacore::get_wsd(park = "BISC")
+surge_exp <- calc_storm_surge_exposure(
+  ws,
+  storm_surge_stations = wavacore::wava_data_path("rapid", "inputs", "storm_surge",
+                                                  "storm_surge_RP10_muis_2023.gpkg")
+)
+surge_exp
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_storm_surge_sensitivity]{calc_storm_surge_sensitivity()}} for the current surge level;
+\code{\link[=process_storm_surge_data]{process_storm_surge_data()}} and \code{\link[=process_coastal_geometry]{process_coastal_geometry()}}, which make
+the inputs; \code{\link[=calc_inundation_exposure]{calc_inundation_exposure()}} and \code{\link[=calc_swi_exposure]{calc_swi_exposure()}}, the
+other coastal indicators.
 }

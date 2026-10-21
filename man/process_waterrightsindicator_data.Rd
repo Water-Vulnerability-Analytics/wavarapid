@@ -2,7 +2,7 @@
 % Please edit documentation in R/process_waterrightsindicator_data.R
 \name{process_waterrightsindicator_data}
 \alias{process_waterrightsindicator_data}
-\title{Process Water Rights Indicator Data - Aqueduct 4.0 Annual Water Risk Data}
+\title{Prepare the Aqueduct 4.0 water stress table for the water rights indicators}
 \usage{
 process_waterrightsindicator_data(
   water_supplies,
@@ -16,62 +16,127 @@ process_waterrightsindicator_data(
 )
 }
 \arguments{
-\item{water_supplies}{sf object of NPS water supply source points, e.g.
-\code{get_wsd(rapid = TRUE)}. Must include wsd_source_id and source_state.}
+\item{water_supplies}{sf object. The water supplies, as points, with the
+WSD columns \code{wsd_source_id}, \code{park_unit}, \code{park_name}, \code{region},
+\code{source_state}, \code{state}, \code{water_system_name}, \code{system_type},
+\code{source_longitude} and \code{source_latitude}, e.g.
+\code{wavacore::get_wsd(rapid = TRUE)}. Supplies with no \code{source_state} use
+\code{state}; supplies outside the contiguous US are dropped, as are repeated
+\code{wsd_source_id}s. Required.}
 
-\item{gdb_path}{character, path to the Aqueduct 4.0 .gdb.}
+\item{gdb_path}{String. Path to the Aqueduct 4.0 \code{.gdb}. Stops with an
+error if it doesn't exist. Default:
+\code{all/aqueduct_v4/Aqueduct40_waterrisk_download_Y2023M07D05/GDB/Aq40_Y2023D07M05.gdb}
+in the shared data folder, see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{save}{logical, whether to save the output CSV. Defaults to TRUE.}
+\item{save}{Logical. Whether to write the table.
+\itemize{
+\item \code{TRUE}: writes \code{waterrights_stress_long.csv} to \code{output_dir}, creating
+the folder if needed and replacing an existing file. Stops with an
+error if \code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing, whatever \code{save_intermediate} is.
+}
 
-\item{output_dir}{character, directory where the CSV is written.}
+Default: \code{TRUE}.}
 
-\item{save_intermediate}{logical, also write the clipped CONUS Aqueduct
-layers as GeoPackages (useful for mapping). Defaults to FALSE.}
+\item{output_dir}{String or \code{NULL}. The folder for the output files.
+\itemize{
+\item A folder path: where the files are written when \code{save = TRUE}.
+Ignored when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
 
-\item{verbose}{logical, print progress messages? Defaults to TRUE.}
+Default: \code{rapid/inputs/WaterRightsIndicator} in the shared data folder,
+which is where the water rights indicators look for the CSV.}
 
-\item{quiet_warnings}{logical, suppress the expected GDAL \code{organizePolygons()}
-warning and the s2 "assumes planar" notes. Defaults to TRUE.}
+\item{save_intermediate}{Logical. Whether to also write the clipped
+Aqueduct layers (useful for maps). Only used when \code{save = TRUE}.
+\itemize{
+\item \code{TRUE}: also writes \code{CONUS_aqueduct_baseline_annual.gpkg} and
+\code{CONUS_aqueduct_future_annual.gpkg} to \code{output_dir}.
+\item \code{FALSE}: writes only the CSV.
+}
+
+Default: \code{TRUE}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints each step, the number of sub-basins and rows, the saved
+paths and the run time.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
+
+\item{quiet_warnings}{Logical. Whether to hide the expected warnings and
+messages from the spatial steps.
+\itemize{
+\item \code{TRUE}: hides them (the GDAL \code{organizePolygons()} warning and the s2
+"assumes planar" notes). Errors still show.
+\item \code{FALSE}: shows them.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble, one row per water system x rcp x period
+A tibble, one row per water supply, pathway and period, with
+columns \code{wsd_source_id}, \code{park_unit}, \code{park_name}, \code{region},
+\code{source_state}, \code{state_name}, \code{water_system_name}, \code{system_type},
+\code{source_longitude}, \code{source_latitude}, \code{aq30_id}, \code{pfaf_id_baseline},
+\code{pfaf_id_future}, \code{rcp} (\code{baseline}, \code{rcp26}, \code{rcp70}, \code{rcp85}),
+\code{period} (\code{baseline}, \code{2030}, \code{2050}, \code{2080}), \code{stress_raw},
+\code{stress_score} (0-5), \code{stress_label} (ordered factor) and \code{stress_rank}
+(1-5).
 }
 \description{
-Data Download links: [active as on August 2026]
-https://www.wri.org/data/aqueduct-global-maps-40-data#download-form [Form to download data and sign up for updates]
-https://files.wri.org/aqueduct/aqueduct-4-0-water-risk-data.zip [direct link to download a zip folder with .GDB dataset version]
-Aqueduct Data Dictionary: https://github.com/wri/Aqueduct40/blob/master/data_dictionary_water-risk-atlas.md
+Builds the long water stress table that \code{\link[=calc_waterrights_sensitivity]{calc_waterrights_sensitivity()}}
+and \code{\link[=calc_waterrights_exposure]{calc_waterrights_exposure()}} read:
+\enumerate{
+\item Downloads the TIGER/Line state boundaries (\code{\link[tigris:states]{tigris::states()}}) and
+keeps the contiguous US, so it needs internet.
+\item Reads the Aqueduct 4.0 \code{baseline_annual} and \code{future_annual} layers
+and keeps the sub-basins that touch the contiguous US.
+\item Attaches each water supply to its nearest sub-basin, separately for
+the baseline and future layers, because they use different HydroBASINS
+resolutions (about 3,137 and 1,011 sub-basins in the contiguous US).
+Both \code{pfaf_id_baseline} and \code{pfaf_id_future} are kept.
+\item Reshapes to one row per water supply, pathway and period: the baseline
+(1979-2019) plus RCP2.6, RCP7.0 and RCP8.5 at 2030, 2050 and 2080, so
+10 rows per supply.
 }
-\details{
-Builds the CONUS boundary from TIGER/Line state polygons, reads and clips the
-Aqueduct 4.0 "baseline_annual" and "future_annual" layers to CONUS, attaches
-each NPS water supply point to its sub-basin, and returns one long water
-stress table ready for the Sensitivity and Exposure indicator calculations.
 
-State surface/groundwater doctrines are NOT included here - they are
-descriptive legal context, carried separately from the water stress metrics.
+The water stress score is log-normalized from 0 to 5; higher means more
+competition for water. "Arid and Low Water Use" scores 5, the same as
+"Extremely High", and \code{stress_rank} gives both 5 so category changes read
+correctly. \code{stress_raw} keeps Aqueduct's 9999 code for arid sub-basins;
+recode it when plotting. State surface and groundwater doctrines are not
+included; they are legal context kept separately.
 
-When saved, writes a single CSV:
-\code{waterrights_stress_long.csv} — one row per water system x rcp x period
+s2 geometry is turned off while the function runs (Aqueduct polygons are
+large and often invalid) and turned back on when it ends.
 
-One water system contributes 10 rows: the baseline (1979-2019) plus three
-CMIP6 pathways (RCP2.6 / RCP7.0 / RCP8.5) at 2030, 2050 and 2080. Downstream:
+Data downloads (active as of August 2026):
 \itemize{
-\item Sensitivity  -> filter(period == "baseline")
-\item Exposure     -> filter(period != "baseline"), self-joined to baseline
-\item Distribution -> plot stress_raw / stress_score by rcp + period
+\item Sign-up form: \url{https://www.wri.org/data/aqueduct-global-maps-40-data}
+\item Direct link to the zip with the \code{.gdb}:
+\url{https://files.wri.org/aqueduct/aqueduct-4-0-water-risk-data.zip}
+\item Data dictionary:
+\url{https://github.com/wri/Aqueduct40/blob/master/data_dictionary_water-risk-atlas.md}
 }
-
-Water stress score is a log-normalized 0-5 value; higher = more competition
-for water. "Arid and Low Water Use" is scored 5, same as "Extremely High",
-and \code{stress_rank} reflects that tie so category movement reads correctly.
-\code{stress_raw} keeps Aqueduct's 9999 sentinel for arid sub-basins - recode it
-at plotting time, not here.
-
-Baseline and future are joined separately by nearest feature because they are
-delivered at different HydroBASINS resolutions (~3,137 vs ~1,011 CONUS
-sub-basins); \code{pfaf_id_baseline} and \code{pfaf_id_future} are both retained.
 
 Citation: Kuzma, S. et al. (2023) Aqueduct 4.0: Updated decision-relevant
 global water risk indicators. World Resources Institute.
+}
+\examples{
+\dontshow{if (interactive() && file.exists(wavacore::wava_data_path("all", "aqueduct_v4", "Aqueduct40_waterrisk_download_Y2023M07D05", "GDB", "Aq40_Y2023D07M05.gdb"))) withAutoprint(\{ # examplesIf}
+# Downloads the state boundaries and reads the global Aqueduct layers, so
+# it needs internet and takes several minutes
+ws <- wavacore::get_wsd(park = c("ZION", "ROMO"))
+stress <- process_waterrightsindicator_data(ws, save = FALSE)
+table(stress$period, stress$rcp)
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_waterrights_sensitivity]{calc_waterrights_sensitivity()}} (uses the baseline rows) and
+\code{\link[=calc_waterrights_exposure]{calc_waterrights_exposure()}} (uses one future period).
 }

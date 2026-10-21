@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_precip_exposure.R
 \name{calc_precip_exposure}
 \alias{calc_precip_exposure}
-\title{Calculate Precipitation Exposure Indicator (Standardized Version)}
+\title{Precipitation exposure: projected change in annual precipitation}
 \usage{
 calc_precip_exposure(
   water_supplies,
@@ -18,29 +18,116 @@ calc_precip_exposure(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with water supply locations}
+\item{water_supplies}{sf object. The water supplies, with a
+\code{wsd_source_id} column, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Only their IDs
+are used, to pick rows from the processed files, so they must be the IDs
+the files were made with. Required.}
 
-\item{precip_data}{character vector of processed loca2 mwbm files}
+\item{precip_data}{String. The folder of processed precipitation parquet
+files from \code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}. Stops with an error if no files are
+left after the \code{hindcast} and year filters. Default:
+\code{rapid/inputs/loca2_precipitation_water_supplies} in the shared data
+folder,
+see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{hindcast}{logical, if TRUE uses hindcast climate data, if FALSE uses "measured" LOCA downscaled climate data}
+\item{hindcast}{Logical. Where the historical period comes from.
+\itemize{
+\item \code{TRUE}: each model's own historical run, so the change is measured
+within each model. Historical years after the historical run ends
+(2014) come from the same model's scenario run. Training and Livneh
+(\code{livneh_unsplit}) files are not read.
+\item \code{FALSE}: observed (Livneh) precipitation, the same baseline for every
+model, from the \code{livneh_unsplit} files in \code{precip_data}; the future
+comes from the scenario files. Model values before 2019 are dropped.
+Needs Livneh files in \code{precip_data}.
+}
 
-\item{historical}{Character vector of length 2 giving the start and end years
-(in \code{"YYYY"} format) that defines the "historical" period.}
+Default: \code{TRUE}.}
 
-\item{future}{Character vector of length 2 giving the start and end years
-(in \code{"YYYY"} format) that defines the "future" period.}
+\item{historical}{Character or numeric vector of 2 years, e.g.
+\code{c(1980, 2010)}. The first and last year of the historical period.
+Required.}
 
-\item{water_year}{T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.}
+\item{future}{Character or numeric vector of 2 years, e.g.
+\code{c(2035, 2065)}. The first and last year of the future period. Required.}
 
-\item{save}{logical, whether to save output}
+\item{water_year}{Logical. How months are grouped into years.
+\itemize{
+\item \code{TRUE}: water years, October to September, labelled by the year they
+end in (water year 2010 is October 2009 to September 2010).
+\item \code{FALSE}: calendar years.
+}
 
-\item{output_dir}{character, directory path for saving files}
+Default: \code{TRUE}.}
 
-\item{verbose}{logical, whether to show progress messages}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{precipitation_exposure_<date>.csv}, named with today's date,
+to \code{output_dir}, creating the folder if needed. Stops with an error if
+\code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
+
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: shows a progress bar over the files and messages with the run
+time and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble with water supply ID, park info, and precipitation exposure indicators
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit} and:
+\itemize{
+\item \code{raw_precipitation_change_p10}, \verb{_p50}, \verb{_p90}: the percent change in
+mean annual precipitation of the model run closest to that percentile;
+\item \code{raw_precip_models_showing_decrease}: the percentage of model runs
+with a decrease;
+\item \verb{norm_*} and \verb{rank_*} versions of both from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}. The precipitation change is inverted, so the
+largest decrease gets the highest score.
+}
 }
 \description{
-Calculates precipitation vulnerability using LOCA2 climate model data and the MWBM.
+Calculates the change in mean annual precipitation at each water supply
+between a historical and a future period, from LOCA2 monthly
+precipitation. Monthly precipitation is averaged over each site's grid
+cells and summed to annual totals. Only files whose years (from the file
+name) overlap the two periods are read. For each model run (model, scenario and
+ensemble member) the change is the future mean minus the historical mean,
+as a percentage of the historical mean.
+
+The ensemble is then summarized per site: the runs closest to the 10th,
+50th and 90th percentiles of the percent change, and the percentage of runs
+that show a decrease.
+}
+\examples{
+\dontshow{if (interactive() && dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies"))) withAutoprint(\{ # examplesIf}
+# Reads the processed precipitation files for both periods (several GB),
+# so it takes several minutes even for one park
+ws <- wavacore::get_wsd(park = "ZION")
+precip_exp <- calc_precip_exposure(ws,
+                                   historical = c(1980, 2010),
+                                   future = c(2035, 2065))
+precip_exp
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_precip_sensitivity]{calc_precip_sensitivity()}} for the historical trend;
+\code{\link[=calc_precip_timing_exposure]{calc_precip_timing_exposure()}} for the change in timing;
+\code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}, which makes the input files;
+\code{\link[=calc_vulnerability_index]{calc_vulnerability_index()}}.
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_dry_period_exposure.R
 \name{calc_dry_period_exposure}
 \alias{calc_dry_period_exposure}
-\title{Calculate Consecutive Dry-Day Exposure Indicator}
+\title{Dry spell exposure: projected change in the longest dry spell}
 \usage{
 calc_dry_period_exposure(
   water_supplies,
@@ -16,37 +16,92 @@ calc_dry_period_exposure(
 )
 }
 \arguments{
-\item{water_supplies}{An \code{sf} object containing \code{wsd_source_id} and
-\code{park_unit}.}
+\item{water_supplies}{sf object. The water supplies, with \code{wsd_source_id}
+and \code{park_unit} columns, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Only their IDs
+are used, to pick rows from the processed files. Required.}
 
-\item{period_data}{Character. Directory containing parquet files created by
-\code{process_precip_period_data()}.}
+\item{period_data}{String. The folder of parquet files from
+\code{\link[=process_precip_period_data]{process_precip_period_data()}}. Stops with an error if it doesn't exist
+or the files lack the expected columns. Default:
+\code{rapid/inputs/loca_cmip6_precip_periods_water_supplies} in the shared
+data folder, see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{historical}{Character vector of length 2 giving the historical
-start/end years.}
+\item{historical}{Character or numeric vector of 2 years, e.g.
+\code{c(1980, 2010)}. The first and last year of the historical period, read
+from the historical runs (1950-2014). Required.}
 
-\item{future}{Character vector of length 2 giving the future start/end years.}
+\item{future}{Character or numeric vector of 2 years, e.g.
+\code{c(2035, 2065)}. The first and last year of the future period, read from
+the scenario runs. Required.}
 
-\item{save}{Logical. If \code{TRUE}, writes results to disk.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{dry_period_exposure_<date>.csv}, named with today's
+date, to \code{output_dir}, creating the folder if needed. Stops with an
+error if \code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{output_dir}{Character. Output directory when \code{save = TRUE}.}
+Default: \code{FALSE}.}
 
-\item{verbose}{Logical. If \code{TRUE}, prints progress messages.}
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints each step, the run time and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-A tibble with one row per water supply and dry-period exposure
-indicators.
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit} and:
+\itemize{
+\item \code{raw_cdd_change_p10}, \verb{_p50}, \verb{_p90}: the change in mean CDD (days) of
+the model run closest to that percentile;
+\item \code{raw_cdd_percent_change_p10}, \verb{_p50}, \verb{_p90}: the same for the percent
+change;
+\item \code{raw_cdd_change_models_showing_increase}: the percentage of runs with
+longer dry spells; \code{raw_cdd_change_model_count}: the number of runs;
+\item \verb{norm_*} and \verb{rank_*} versions of the percent changes and of
+\code{raw_cdd_change_models_showing_increase}, from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}. Longer spells get a higher score.
+}
 }
 \description{
-Calculates projected change in annual maximum consecutive dry-day spell
-length (CDD) from the processed LOCA2 precipitation-extremes dataset. For
-each model/SSP/run, exposure is the percent change from historical mean CDD
-to future mean CDD. Absolute changes in days are retained as supporting
-values. The closest actual model values to the p10, p50, and p90 of the
-local ensemble are retained, along with the percentage of models showing
-longer dry spells.
+Calculates the change in the yearly maximum number of consecutive dry
+days (CDD) at each water supply between a historical and a future period,
+from the LOCA2 precipitation-extremes data processed by
+\code{\link[=process_precip_period_data]{process_precip_period_data()}}. For each model and ensemble member, the
+historical mean comes from its historical run and the future mean from
+each scenario run. The change is the future mean minus the historical
+mean, in days and as a percentage of the historical mean.
+
+The ensemble is then summarized per site: the runs closest to the 10th,
+50th and 90th percentiles of each change, and the percentage of runs with
+longer dry spells. Longer dry spells mean more exposure. Only the percent
+change is standardized, so the days are not counted twice.
 }
-\details{
-Larger positive percent changes indicate greater exposure to extended dry
-periods.
+\examples{
+\dontshow{if (dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca_cmip6_precip_periods_water_supplies"))) withAutoprint(\{ # examplesIf}
+ws <- wavacore::get_wsd(park = "ZION")
+dry_exp <- calc_dry_period_exposure(ws,
+                                    historical = c(1980, 2010),
+                                    future = c(2035, 2065))
+dry_exp[, c("wsd_source_id", "raw_cdd_percent_change_p50",
+            "raw_cdd_change_models_showing_increase")]
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_wet_period_exposure]{calc_wet_period_exposure()}}, the paired wet spell indicator;
+\code{\link[=calc_dry_period_sensitivity]{calc_dry_period_sensitivity()}} for the historical trend;
+\code{\link[=process_precip_period_data]{process_precip_period_data()}}, which makes the input files.
 }

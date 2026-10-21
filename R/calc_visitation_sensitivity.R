@@ -1,29 +1,66 @@
-#' Calculate Historical Visitation Sensitivity Indicator
+#' @title Visitation sensitivity: historical trend in park visitation
 #'
-#' Calculates historical visitation sensitivity indicators for park water supplies
-#' using annual NPS visitation totals. For each park unit, annual visitation is
-#' summarized over the specified historical period and used to estimate historical
-#' visitation trends with Sen's slope and the Mann-Kendall test.
+#' @description
+#' Calculates the trend in annual recreation visits for each park unit in
+#' `water_supplies`, from the NPS visitation statistics API through
+#' [wavacore::getUnitVisitation()], so it needs internet. The trend is Sen's
+#' slope ([trend::sens.slope()]), tested with Mann-Kendall
+#' ([trend::mk.test()]), for parks with at least 3 years. A few WSD codes are
+#' looked up under a different visitation code (ANAC and NACE as NCPE, NAMA
+#' as NCPC, VALR as PERL); the output keeps the WSD code. Parks whose request
+#' or calculation fails are dropped without a message and get `NA`.
 #'
-#' Results are merged with the provided `water_supplies` dataset.
+#' Every water supply gets the values of its park.
 #'
-#' @param water_supplies A data frame containing at least a `park_unit` column,
-#'   representing unique park identifiers for which visitation sensitivity
-#'   indicators will be calculated.
-#' @param start_year Numeric. First year of visitation data to request.
-#'   Defaults to `1990`.
-#' @param end_year Numeric. Last year of visitation data to request.
-#'   Defaults to `2024`.
-#' @param save Logical. If `TRUE`, results are saved to a file in `output_dir`.
-#' @param output_dir Optional character string specifying the directory where
-#'   results will be saved if `save = TRUE`.
-#' @param verbose Logical. If `TRUE`, progress messages are printed to the console.
+#' @param water_supplies Data frame or sf object. The water supplies, with
+#'   `wsd_source_id` and `park_unit` columns, e.g. from
+#'   [wavacore::get_wsd()]. One request is made per park unit. Stops with an
+#'   error if `park_unit` is missing. Required.
+#' @param start_year Integer. The first year of visitation to request.
+#'   Default: `1990`.
+#' @param end_year Integer. The last year of visitation to request.
+#'   Default: `2024`.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `visitation_sensitivity_<date>.csv`, named with today's date, to
+#'     `output_dir`, creating the folder if needed. Stops with an error if
+#'     `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
-#' @return
-#' A tibble combining the original `water_supplies` data with historical visitation
-#' sensitivity indicators.
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
 #'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints the number of parks, the run time and the path of the
+#'     saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble (no geometry), one row per water supply, with
+#'   `wsd_source_id`, `park_unit` and:
+#'   * `raw_avg_visitation`: mean annual visits;
+#'   * `raw_visitation_slope`: Sen's slope (visits per year);
+#'   * `raw_scaled_trend_visitation`: the slope as a percentage of the mean
+#'     (% per year);
+#'   * `mk_tau`, `mk_p_value`, `mk_significant` (p < 0.05),
+#'     `trend_direction`, `n_years`, `time_range` and `peak_year`;
+#'   * `norm_*` and `rank_*` versions of the three `raw_*` columns from
+#'     [add_standardized_indicators()]. Faster growth and more visits get a
+#'     higher score.
 #' @export
+#' @seealso [calc_visitation_exposure()] for the projected change;
+#'   [wavacore::getUnitVisitation()], which downloads the visitation data.
+#' @examplesIf interactive()
+#' # Downloads visitation statistics from the NPS API, so it needs internet
+#' ws <- wavacore::get_wsd(park = c("ZION", "ROMO"))
+#' visitation_sen <- calc_visitation_sensitivity(ws, start_year = 1990, end_year = 2024)
+#' visitation_sen[, c("wsd_source_id", "park_unit", "raw_avg_visitation",
+#'                    "raw_scaled_trend_visitation")]
+
 calc_visitation_sensitivity <- function(water_supplies,
                                         start_year = 1990,
                                         end_year = 2024,

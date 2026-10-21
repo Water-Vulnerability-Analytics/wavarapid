@@ -1,25 +1,70 @@
-#' Calculate Historical SWE Sensitivity Indicator
+#' @title Snow sensitivity: historical trend in annual peak snow water equivalent
 #'
-#' Calculates a historical SWE sensitivity indicator from processed LOCA2 MWBM
-#' SWE data using only the true historical SWE time series. Annual SWE is
-#' aggregated from grid cells and used to estimate historical SWE trends with
-#' Sen's slope and the Mann-Kendall test for each water supply.
+#' @description
+#' Calculates the historical trend in annual peak snow water equivalent (SWE)
+#' at each water supply from the Jay Alder MWBM training run (the file in
+#' `swe_data` with "Jay" in its name). Monthly SWE is averaged over each
+#' site's grid cells, and each year's peak is the highest monthly value. The
+#' trend is Sen's slope ([trend::sens.slope()]), tested with Mann-Kendall
+#' ([trend::mk.test()]); sites with fewer than 3 years get `NA`.
 #'
-#' @param water_supplies sf object with water supply locations.
-#' @param swe_data character, directory containing processed LOCA2 MWBM SWE files.
-#'   Defaults to `wava_data_path("rapid", "inputs", "loca2_swe_water_supplies/")`.
-#' @param historical Character vector of length 2 giving the start and end years
-#'   (in `"YYYY"` format) that define the historical period.
-#' @param water_year T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.
-#' @param save logical, whether to save output. Default is `FALSE`.
-#' @param output_dir character, directory path for saving files. Required if
-#'   `save = TRUE`.
-#' @param verbose logical, whether to show progress messages. Default is `TRUE`.
+#' @param water_supplies sf object. The water supplies, with a
+#'   `wsd_source_id` column, e.g. from [wavacore::get_wsd()]. Only their IDs
+#'   are used, to pick rows from the processed file. Required.
+#' @param swe_data String. The folder of processed snow parquet files from
+#'   [process_loca2_mwbm()]. Only the Jay Alder training file is read; stops
+#'   with an error if there isn't one. Default:
+#'   `rapid/inputs/loca2_swe_water_supplies` in the shared data folder,
+#'   see [wavacore::wava_data_path()].
+#' @param historical Character or numeric vector of 2 years, e.g.
+#'   `c(1980, 2010)`. The first and last year of the trend period. The
+#'   training run covers 1950-2014. Required.
+#' @param water_year Logical. How months are grouped into years.
+#'   * `TRUE`: water years, October to September, labelled by the year they
+#'     end in.
+#'   * `FALSE`: calendar years.
 #'
-#' @return tibble with one row per water supply and historical SWE sensitivity
-#'   indicators.
+#'   Default: `TRUE`.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `swe_sensitivity_<date>.csv`, named with today's
+#'     date, to `output_dir`, creating the folder if needed. Stops with an
+#'     error if `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: shows a progress bar and messages with the run time and the
+#'     path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit` and:
+#'   * `raw_avg_swe`: mean annual peak SWE (mm);
+#'   * `raw_slope_swe`: Sen's slope (mm per year);
+#'   * `raw_percent_slope_swe`: the slope as a percentage of the mean
+#'     (% per year);
+#'   * `n_years`, `mk_significant` (Mann-Kendall p < 0.05) and
+#'     `trend_direction` (`"increasing"`, `"decreasing"` or `"no change"`);
+#'   * `norm_*` and `rank_*` versions of the three `raw_*` columns from
+#'     [add_standardized_indicators()]. All three are inverted, so lower or
+#'     more steeply declining snow gets a higher score.
 #' @export
+#' @seealso [calc_swe_exposure()] for the projected change;
+#'   [process_loca2_mwbm()], which makes the input files.
+#' @examplesIf file.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_swe_water_supplies", "Jay_Alder_snow_MWBM_LOCA2_training_195001-201412.nc.parquet"))
+#' ws <- wavacore::get_wsd(park = "ROMO")
+#' swe_sen <- calc_swe_sensitivity(ws, historical = c(1980, 2010))
+#' swe_sen[, c("wsd_source_id", "raw_avg_swe", "raw_percent_slope_swe",
+#'             "trend_direction")]
+
 calc_swe_sensitivity <- function(water_supplies,
                                  swe_data = wavacore::wava_data_path("rapid", "inputs", "loca2_swe_water_supplies/"),
                                  historical,

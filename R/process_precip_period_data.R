@@ -1,23 +1,63 @@
-#' Process LOCA2 precipitation-period metrics at water-supply locations
+#' @title Extract dry and wet spell lengths at water supplies
 #'
-#' Extracts annual maximum consecutive dry-day and wet-day spell lengths from
-#' the revised LOCA2 precipitation-extremes NetCDF collection. Values are
-#' averaged over the same 3 x 3 neighborhood used by `process_loca2_mwbm()`.
+#' @description
+#' Reads one NetCDF file of the LOCA2 precipitation-extremes collection and
+#' writes the yearly maximum spell lengths at each water supply to a parquet
+#' file. Run it once per file; [calc_dry_period_exposure()],
+#' [calc_wet_period_exposure()], [calc_dry_period_sensitivity()] and
+#' [calc_wet_period_sensitivity()] read the folder.
 #'
-#' The source variables use a 2.54 mm/day threshold:
-#' - `dry_spell_max_length`: annual maximum consecutive dry days (CDD)
-#' - `wet_spell_max_length`: annual maximum consecutive wet days (CWD)
+#' Each value is the mean over the 3 x 3 block of grid cells around the
+#' supply's nearest cell (the same block as [process_loca2_mwbm()]), ignoring
+#' missing cells. The two variables use a 2.54 mm/day threshold:
+#' - `dry_spell_max_length`: the year's longest run of dry days (CDD);
+#' - `wet_spell_max_length`: the year's longest run of wet days (CWD).
 #'
-#' @param nc_path Character. Path to one LOCA2 precipitation-metrics NetCDF.
-#' @param water_supplies An `sf` point object containing `wsd_source_id` and
-#'   `park_unit`.
-#' @param output_dir Character. Directory where the processed parquet is saved.
-#' @param overwrite Logical. If `FALSE`, an existing output is returned without
-#'   reprocessing. Default is `FALSE`.
-#' @param verbose Logical. If `TRUE`, prints progress messages.
+#' The model, scenario and run are read from the file name, which must follow
+#' `MODEL.SCENARIO.RUN.YEARS.LOCA_16thdeg_pr_metrics.nc`.
 #'
-#' @return Invisibly returns the output parquet path.
+#' The parquet file is `<nc file name>.parquet` in `output_dir`, with one row
+#' per water supply and year and columns `wsd_source_id`, `park_unit`,
+#' `year`, `model`, `ssp`, `run`, `nc_file`, `dry_spell_max_length` and
+#' `wet_spell_max_length`.
+#'
+#' @param nc_path String. Path to one precipitation-metrics NetCDF file, from
+#'   `all/loca_cmip6_precip_products` in the shared data folder. Stops with an
+#'   error if the file doesn't exist, lacks either variable, or has a name
+#'   that can't be parsed. Required.
+#' @param water_supplies sf object. The water supplies, as `POINT` geometries
+#'   with `wsd_source_id` and `park_unit` columns, e.g. from
+#'   [wavacore::get_wsd()]. Stops with an error if any point is outside the
+#'   LOCA2 grid. Required.
+#' @param output_dir String. The folder for the parquet file, created if it
+#'   doesn't exist. Default:
+#'   `rapid/inputs/loca_cmip6_precip_periods_water_supplies` in the shared
+#'   data folder, see [wavacore::wava_data_path()].
+#' @param overwrite Logical. What to do when the output file already exists.
+#'   * `TRUE`: processes the file again and replaces it.
+#'   * `FALSE`: skips the file and returns the existing path.
+#'
+#'   Default: `FALSE`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints the file being read, each variable, and the run time.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return The path of the parquet file, invisibly.
 #' @export
+#' @seealso [calc_dry_period_exposure()], [calc_wet_period_exposure()],
+#'   [calc_dry_period_sensitivity()] and [calc_wet_period_sensitivity()],
+#'   which read the parquet files; [process_loca2_mwbm()] for the other LOCA2
+#'   variables.
+#' @examplesIf interactive() && dir.exists(wavacore::wava_data_path("all", "loca_cmip6_precip_products"))
+#' # One file is about 0.7 GB, so this takes a few minutes
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' nc_name <- "ACCESS-CM2.historical.r1i1p1f1.1950-2014.LOCA_16thdeg_pr_metrics.nc"
+#' nc <- wavacore::wava_data_path("all", "loca_cmip6_precip_products", "historical", nc_name)
+#' out_file <- process_precip_period_data(nc, ws, output_dir = tempdir())
+#' head(arrow::read_parquet(out_file))
+
 process_precip_period_data <- function(
     nc_path,
     water_supplies,

@@ -1,37 +1,73 @@
-#' Calculate Saltwater Intrusion Exposure Indicator
+#' @title Saltwater intrusion exposure
 #'
-#' For each NPS water supply, assigns Case_C saltwater intrusion migration
-#' (meters) using nearest-neighbor distance to the Adams et al. 2024 SWI
-#' estimation points. Water supplies farther than 50 km from any SWI point
-#' are assigned NA (not at coastal SWI risk). Those points that are assigned
-#' SWI values are then weighted based on their distance to the coast, using the
-#' same dataset which was produced in `process_coastal_geometry()`. The raw
-#' migration value is divided by `coast_dist_m` to produce a dimensionless ratio:
-#' what fraction of the land-to-coast corridor is projected to be intruded.
+#' @description
+#' Gives each water supply the projected inland migration of the
+#' saltwater-freshwater interface by 2100 (`Case_C`, from recharge change and
+#' sea level rise combined, Adams et al. 2024) at its nearest saltwater
+#' intrusion point, then divides it by the supply's distance to the coast.
+#' The result is the fraction of the land between the supply and the coast
+#' that is projected to be intruded, capped at 1. Negative values mean the
+#' interface moves seaward.
 #'
-#' Case_C = combined recharge-change + sea-level-rise driven inland migration
-#' of the saltwater-freshwater interface projected to 2100, in meters. Positive
-#' values indicate expected inland intrusion (higher exposure); negative values
-#' indicate the interface retreats.
+#' Supplies more than 50 km from the nearest point, or more than 50 km from
+#' the coast (`coast_dist_m` is `NA`), get `NA`.
 #'
-#' @param water_supplies sf object with water supply point locations. Must
-#'   contain columns `wsd_source_id`, `park_unit`, and `park_name`.
-#' @param swi_pts Saltwater intrusion points. Character path to swi_points.gpkg produced by
-#'   `process_swi_data()`. Defaults to `wava_data_path("rapid", "inputs", "swi", "swi_points.gpkg")`.
-#' @param coast_distances character path to coastal_site_geometry.csv
-#'   produced by `process_coastal_geometry()` (only `coast_dist_m` is used
-#'   here; `coast_elev_m` is dropped after the join).
-#' @param save logical, whether to save output CSV. Defaults to FALSE.
-#' @param output_dir character, directory path for saving files. Required when
-#'   `save = TRUE`.
-#' @param verbose logical, whether to print progress messages. Defaults to TRUE.
+#' @param water_supplies sf object. The water supplies, as points with
+#'   `wsd_source_id`, `park_unit` and `park_name` columns, e.g. from
+#'   [wavacore::get_wsd()]. Stops with an error if a column is missing.
+#'   Required.
+#' @param swi_pts String or sf object. The saltwater intrusion points from
+#'   [process_swi_data()], with a `Case_C` column.
+#'   * String: path to `swi_points.gpkg`. Stops with an error if the file
+#'     doesn't exist.
+#'   * sf object: the points, already read.
 #'
-#' @return tibble with one row per water supply and columns:
-#'   `wsd_source_id`, `park_unit`, `park_name`,
-#'   `raw_swi_migration` (Case_C in meters; NA if > 50 km from any SWI point),
-#'   `norm_swi_migration`, `rank_swi_migration`
+#'   Default: `rapid/inputs/swi/swi_points.gpkg` in the shared data folder,
+#'   see [wavacore::wava_data_path()].
+#' @param coast_distances String. Path to `coastal_site_geometry.csv` from
+#'   [process_coastal_geometry()], joined by `wsd_source_id`, `park_unit` and
+#'   `park_name`; only `coast_dist_m` is used. Stops with an error if the
+#'   file doesn't exist. Default:
+#'   `rapid/inputs/coast_comp/coastal_site_geometry.csv` in the shared data
+#'   folder.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `swi_exposure_<date>.csv`, named with today's date, to
+#'     `output_dir`, creating the folder if needed. Stops with an error if
+#'     `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints each step, how many supplies got a value, the run time
+#'     and the path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit`, `park_name`, `raw_swi_migration` (`Case_C` divided by the
+#'   distance to the coast, at most 1, no units), and its `norm_` and `rank_`
+#'   versions from [add_standardized_indicators()].
+#' @references
+#' Adams, K.H., Reager, J.T., Buzzanga, B., David, C., Sawyer, A., and
+#'   Hamlington, B. (2024). Climate-induced saltwater intrusion in 2100:
+#'   recharge-driven severity, sea level-driven prevalence. Geophysical
+#'   Research Letters.
 #' @export
+#' @seealso [process_swi_data()] and [process_coastal_geometry()], which make
+#'   the inputs; [calc_storm_surge_exposure()] and
+#'   [calc_inundation_exposure()], the other coastal indicators.
+#' @examplesIf file.exists(wavacore::wava_data_path("rapid", "inputs", "swi", "swi_points.gpkg"))
+#' ws <- wavacore::get_wsd(park = "BISC")
+#' swi_exp <- calc_swi_exposure(ws)
+#' swi_exp
+
 calc_swi_exposure <- function(
     water_supplies,
     swi_pts    = wavacore::wava_data_path("rapid", "inputs", "swi", "swi_points.gpkg"),

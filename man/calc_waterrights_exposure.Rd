@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_waterrights_exposure.R
 \name{calc_waterrights_exposure}
 \alias{calc_waterrights_exposure}
-\title{Calculate Water Rights Exposure Indicator}
+\title{Water rights exposure: projected water stress (Aqueduct 4.0)}
 \usage{
 calc_waterrights_exposure(
   water_supplies,
@@ -15,79 +15,125 @@ calc_waterrights_exposure(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with water supply point locations, used to
-verify that \code{stress_data} covers the same set of \code{wsd_source_id} values.}
+\item{water_supplies}{sf object. The water supplies, with a
+\code{wsd_source_id} column. Only used as a check: the function stops with an
+error if the \code{wsd_source_id}s in \code{stress_data} are not exactly the same
+set, which catches a stress table made from a different or older list
+of supplies. Required.}
 
-\item{stress_data}{character path to \code{waterrights_stress_long.csv} (output of
-\code{process_waterrightsindicator_data()}), or a data.frame with the same
-columns. Must include \code{wsd_source_id}, \code{park_unit}, \code{park_name}, \code{rcp},
-\code{period}, \code{stress_score}, and \code{stress_label}.}
+\item{stress_data}{String or data frame. The long water stress table from
+\code{\link[=process_waterrightsindicator_data]{process_waterrightsindicator_data()}}, with columns \code{wsd_source_id},
+\code{park_unit}, \code{park_name}, \code{rcp}, \code{period}, \code{stress_score} and
+\code{stress_label}.
+\itemize{
+\item String: path to \code{waterrights_stress_long.csv}. Stops with an error if
+the file doesn't exist.
+\item Data frame: the same table, already read.
+}
 
-\item{period}{character, the single planning horizon to report: \code{"2030"}
-(early-century), \code{"2050"} (mid-century, the default) or \code{"2080"}
-(late-century). Only one may be selected; the horizon is appended to the
-indicator column names and the output filename.}
+Default: \code{rapid/inputs/WaterRightsIndicator/waterrights_stress_long.csv}
+in the shared data folder, see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{save}{logical, whether to save output. Default is \code{FALSE}.}
+\item{period}{String. The one planning horizon to report. The horizon is
+added to the indicator column names and the file name.
+\itemize{
+\item \code{"2030"}: early century.
+\item \code{"2050"}: mid century. Matches NPS planning horizons and comes before
+Aqueduct holds irrigation demand fixed.
+\item \code{"2080"}: late century. Aqueduct's crop extent projections end in 2050
+and are held constant after it, and livestock demand stays at 2014
+levels throughout, so report 2080 results with that caveat.
+}
 
-\item{output_dir}{character, directory path for saving files. Required if
-\code{save = TRUE}.}
+Anything else stops with an error. Default: \code{"2050"}.}
 
-\item{verbose}{logical, whether to show progress messages. Default is \code{TRUE}.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{waterrights_exposure_<period>_<date>.csv}, named with
+the period and today's date, to \code{output_dir}, creating the folder if
+needed. Stops with an error if
+\code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
+
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints each step, how many supplies got a value, the run time
+and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble with one row per water supply: \code{wsd_source_id}, \code{park_unit},
-\code{park_name}, the pathway driving the metric (\code{worst_rcp}, \code{tied_rcps}),
-raw/norm/rank columns for \verb{raw_water_stress_<period>} (score 0-5, not
-inverted), its Aqueduct category (\verb{water_stress_label_<period>}), and the
-trajectory from baseline (\code{baseline_water_stress},
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit}, \code{park_name} and:
+\itemize{
+\item \code{worst_rcp} and \code{tied_rcps}: the pathway behind the score;
+\item \verb{raw_water_stress_<period>} (score 0-5) with its \code{norm_} and \code{rank_}
+versions from \code{\link[=add_standardized_indicators]{add_standardized_indicators()}} (higher stress gets a
+higher score), and \verb{water_stress_label_<period>}, the Aqueduct
+category;
+\item the path from the baseline: \code{baseline_water_stress},
 \code{baseline_water_stress_label}, \code{water_stress_change},
 \code{water_stress_change_direction}, \code{water_stress_rank_change},
-\code{water_stress_label_changed}, \code{water_stress_label_transition})
+\code{water_stress_label_changed} and \code{water_stress_label_transition}.
+}
 }
 \description{
-Calculates water rights exposure from Aqueduct 4.0 projected water stress for
-the HydroBASINS Level 6 sub-basin containing each NPS water supply, at one of
-three planning horizons: early-century (2030), mid-century (2050, default) or
-late-century (2080). Requires the long stress table produced by
-\code{process_waterrightsindicator_data()}.
-}
-\details{
-Exposure is the water stress a system faces at the selected horizon: the
-Aqueduct score (0-5) under the worst of the three CMIP6 pathways (RCP2.6,
-RCP7.0, RCP8.5). It is an \emph{end-state}, not a delta — what the system is up
-against at that horizon, regardless of which pathway materializes. On ties,
-the highest forcing is reported as \code{worst_rcp} and all tied pathways are
-listed in \code{tied_rcps}; \code{"rcp26, rcp70, rcp85"} means stress at that horizon is
-insensitive to the emissions pathway.
+Gives each water supply the Aqueduct 4.0 water stress score of its
+HydroBASINS level 6 sub-basin at one planning horizon (2030, 2050 or
+2080), under the worst of the three CMIP6 pathways (RCP2.6, RCP7.0,
+RCP8.5), from the table made by \code{\link[=process_waterrightsindicator_data]{process_waterrightsindicator_data()}}.
 
-Mid-century is the default because it matches NPS planning horizons and
-precedes the point where Aqueduct holds irrigation demand static. Aqueduct's
-crop extent projections end in 2050 and are held constant beyond it, and
-livestock demand is held at 2014 levels throughout, so a \code{period = "2080"}
-run rests on materially stronger demand-side assumptions than 2030 or 2050
-and should be reported with that caveat.
+Exposure is an end state, not a change: the stress a system faces at that
+horizon, whichever pathway happens. On ties, the highest forcing is
+reported as \code{worst_rcp} and all tied pathways are listed in \code{tied_rcps};
+\code{"rcp26, rcp70, rcp85"} means stress at that horizon doesn't depend on the
+pathway.
 
-The change fields are \strong{not} the metric. They describe the trajectory from
-baseline to that end-state, and exist to distinguish systems that arrive at a
-high score by deteriorating from ones that were already there. Two systems can
-share a score of 5 while one escalated from "Low" and the other never left
-"Extremely High" — the same exposure, very different stories.
-\code{water_stress_change} is future minus baseline, so positive values indicate
-worsening stress (range -5 to 5).
+The change columns are not the indicator. They show how the supply got
+there from the baseline: two supplies can both score 5 while one rose
+from "Low" and the other was always "Extremely High".
+\code{water_stress_change} is future minus baseline, so positive means worse
+(from -5 to 5). "Arid and Low Water Use" and "Extremely High (>80\%)" share
+a rank, so a move between them shows no rank change;
+\code{water_stress_label_changed} catches those relabels.
 
-Because "Arid and Low Water Use" and "Extremely High (>80\%)" share a severity
-rank, a move between them reads as no rank change; \code{water_stress_label_changed}
-catches those relabels that the score and rank both miss.
-
-Higher stress = higher exposure, so \code{invert = FALSE} is used when
-standardizing. Standardization pools only within the selected horizon.
-
-\code{water_supplies} is used only as a check: the function stops if the distinct
-\code{wsd_source_id} values in \code{stress_data} are not the same set as those in
-\code{water_supplies}, which catches a stress table built from a different (or
-stale) supply list.
+Standardizing uses only the selected horizon.
 
 Citation: Kuzma, S. et al. (2023) Aqueduct 4.0: Updated decision-relevant
 global water risk indicators. World Resources Institute.
+}
+\examples{
+\dontshow{if (file.exists(wavacore::wava_data_path("rapid", "inputs", "WaterRightsIndicator", "waterrights_stress_long.csv"))) withAutoprint(\{ # examplesIf}
+# The stress table and water_supplies must cover the same supplies, so
+# keep the same ones in both
+stress <- readr::read_csv(wavacore::wava_data_path("rapid", "inputs",
+                                                   "WaterRightsIndicator",
+                                                   "waterrights_stress_long.csv"),
+                          show_col_types = FALSE)
+ws <- wavacore::get_wsd(park = "ZION")
+ws <- ws[ws$wsd_source_id \%in\% stress$wsd_source_id, ]
+stress <- stress[stress$wsd_source_id \%in\% ws$wsd_source_id, ]
+
+# Mid century (the default) and late century
+calc_waterrights_exposure(ws, stress_data = stress)
+calc_waterrights_exposure(ws, stress_data = stress, period = "2080")
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_waterrights_sensitivity]{calc_waterrights_sensitivity()}} for the baseline stress;
+\code{\link[=process_waterrightsindicator_data]{process_waterrightsindicator_data()}}, which makes \code{stress_data}.
 }

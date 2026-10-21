@@ -1,19 +1,72 @@
-#' Calculate Fire Exposure Indicator
-#' 
-#' Calculates future fire probability changes for water supplies using
-#' data from Gao et al. 2021. Computes area-weighted future fire probability
-#' for water supply pyromes across multiple climate scenarios.
-#' 
-#' @param water_supplies sf object with water supply locations
-#' @param fire_prob_data fire probability data from Gao et al. 2021 calculated in `rapid_data_processing.Rmd`
-#' @param pyrome_data sf object of CONUS pyromes
-#' @param save logical, whether to save output
-#' @param output_dir character, directory path for saving files
-#' @param verbose logical, whether to show progress messages
-#' 
-#' @return tibble with water supply ID, park info, and fire exposure indicators
-#' 
+#' @title Fire exposure: projected change in fire probability
+#'
+#' @description
+#' Assigns each water supply the projected mid-century change in fire
+#' probability of its pyrome, from Gao et al. (2021). For each pyrome, the
+#' climate models closest to the 10th, 50th and 90th percentiles of the
+#' change are kept, along with the percentage of models that show an
+#' increase. A supply outside every pyrome (e.g. outside the contiguous US)
+#' gets the nearest pyrome. A supply that touches several pyromes gets one
+#' row per pyrome.
+#'
+#' @param water_supplies sf object. The water supplies, as points with
+#'   `wsd_source_id`, `park_unit` and `park_name` columns, e.g. from
+#'   [wavacore::get_wsd()]. Required.
+#' @param fire_prob_data Data frame. The change in fire probability by pyrome
+#'   and climate model, with columns `PYROME`, `GCM` and `delta_fp` (percent
+#'   change), as made in `rapid_data_processing.Rmd` and saved to
+#'   `rapid/inputs/fire_probability_change.csv` in the shared data folder.
+#'   Required.
+#' @param pyrome_data sf object. The pyrome polygons, with a `PYROME` column,
+#'   e.g. `rapid/inputs/pyromes.gpkg` in the shared data folder. Required.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `fire_exposure_<date>.csv`, named with today's date, to
+#'     `output_dir`, creating the folder if needed. Stops with an error if
+#'     `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
+#'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: shows a progress bar over the water supplies and messages with
+#'     the run time and the path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply and pyrome, with
+#'   `wsd_source_id`, `park_unit`, `park_name`, `PYROME` and:
+#'   * `GCM_p10`, `GCM_p50`, `GCM_p90`: the climate model closest to each
+#'     percentile;
+#'   * `raw_fire_prob_change_p10`, `_p50`, `_p90`: that model's percent change
+#'     in fire probability;
+#'   * `raw_fire_models_showing_increase`: the percentage of models with an
+#'     increase;
+#'   * `norm_*` and `rank_*` versions of the three changes from
+#'     [add_standardized_indicators()]. A larger increase gets a higher score.
+#' @references
+#' Gao, P. et al. (2021). Robust projections of future fire probability for
+#'   the conterminous United States. Science of the Total Environment, 789,
+#'   147872.
 #' @export
+#' @seealso [calc_fire_sensitivity()] for current wildfire hazard;
+#'   [calc_vulnerability_index()].
+#' @examplesIf file.exists(wavacore::wava_data_path("rapid", "inputs", "pyromes.gpkg"))
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' pyromes <- sf::st_read(wavacore::wava_data_path("rapid", "inputs", "pyromes.gpkg"),
+#'                        quiet = TRUE)
+#' fire_prob <- readr::read_csv(wavacore::wava_data_path("rapid", "inputs",
+#'                                                       "fire_probability_change.csv"),
+#'                              show_col_types = FALSE)
+#' fire_exp <- calc_fire_exposure(ws, fire_prob_data = fire_prob, pyrome_data = pyromes)
+#' fire_exp[, c("wsd_source_id", "PYROME", "raw_fire_prob_change_p50",
+#'              "raw_fire_models_showing_increase")]
+
 calc_fire_exposure <- function(water_supplies,
                                fire_prob_data,
                                pyrome_data,

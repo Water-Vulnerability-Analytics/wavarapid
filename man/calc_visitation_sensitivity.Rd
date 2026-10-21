@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_visitation_sensitivity.R
 \name{calc_visitation_sensitivity}
 \alias{calc_visitation_sensitivity}
-\title{Calculate Historical Visitation Sensitivity Indicator}
+\title{Visitation sensitivity: historical trend in park visitation}
 \usage{
 calc_visitation_sensitivity(
   water_supplies,
@@ -14,33 +14,82 @@ calc_visitation_sensitivity(
 )
 }
 \arguments{
-\item{water_supplies}{A data frame containing at least a \code{park_unit} column,
-representing unique park identifiers for which visitation sensitivity
-indicators will be calculated.}
+\item{water_supplies}{Data frame or sf object. The water supplies, with
+\code{wsd_source_id} and \code{park_unit} columns, e.g. from
+\code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. One request is made per park unit. Stops with an
+error if \code{park_unit} is missing. Required.}
 
-\item{start_year}{Numeric. First year of visitation data to request.
-Defaults to \code{1990}.}
+\item{start_year}{Integer. The first year of visitation to request.
+Default: \code{1990}.}
 
-\item{end_year}{Numeric. Last year of visitation data to request.
-Defaults to \code{2024}.}
+\item{end_year}{Integer. The last year of visitation to request.
+Default: \code{2024}.}
 
-\item{save}{Logical. If \code{TRUE}, results are saved to a file in \code{output_dir}.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{visitation_sensitivity_<date>.csv}, named with today's date, to
+\code{output_dir}, creating the folder if needed. Stops with an error if
+\code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{output_dir}{Optional character string specifying the directory where
-results will be saved if \code{save = TRUE}.}
+Default: \code{FALSE}.}
 
-\item{verbose}{Logical. If \code{TRUE}, progress messages are printed to the console.}
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints the number of parks, the run time and the path of the
+saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-A tibble combining the original \code{water_supplies} data with historical visitation
-sensitivity indicators.
+A tibble (no geometry), one row per water supply, with
+\code{wsd_source_id}, \code{park_unit} and:
+\itemize{
+\item \code{raw_avg_visitation}: mean annual visits;
+\item \code{raw_visitation_slope}: Sen's slope (visits per year);
+\item \code{raw_scaled_trend_visitation}: the slope as a percentage of the mean
+(\% per year);
+\item \code{mk_tau}, \code{mk_p_value}, \code{mk_significant} (p < 0.05),
+\code{trend_direction}, \code{n_years}, \code{time_range} and \code{peak_year};
+\item \verb{norm_*} and \verb{rank_*} versions of the three \verb{raw_*} columns from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}. Faster growth and more visits get a
+higher score.
+}
 }
 \description{
-Calculates historical visitation sensitivity indicators for park water supplies
-using annual NPS visitation totals. For each park unit, annual visitation is
-summarized over the specified historical period and used to estimate historical
-visitation trends with Sen's slope and the Mann-Kendall test.
+Calculates the trend in annual recreation visits for each park unit in
+\code{water_supplies}, from the NPS visitation statistics API through
+\code{\link[wavacore:getUnitVisitation]{wavacore::getUnitVisitation()}}, so it needs internet. The trend is Sen's
+slope (\code{\link[trend:sens.slope]{trend::sens.slope()}}), tested with Mann-Kendall
+(\code{\link[trend:mk.test]{trend::mk.test()}}), for parks with at least 3 years. A few WSD codes are
+looked up under a different visitation code (ANAC and NACE as NCPE, NAMA
+as NCPC, VALR as PERL); the output keeps the WSD code. Parks whose request
+or calculation fails are dropped without a message and get \code{NA}.
+
+Every water supply gets the values of its park.
 }
-\details{
-Results are merged with the provided \code{water_supplies} dataset.
+\examples{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
+# Downloads visitation statistics from the NPS API, so it needs internet
+ws <- wavacore::get_wsd(park = c("ZION", "ROMO"))
+visitation_sen <- calc_visitation_sensitivity(ws, start_year = 1990, end_year = 2024)
+visitation_sen[, c("wsd_source_id", "park_unit", "raw_avg_visitation",
+                   "raw_scaled_trend_visitation")]
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_visitation_exposure]{calc_visitation_exposure()}} for the projected change;
+\code{\link[wavacore:getUnitVisitation]{wavacore::getUnitVisitation()}}, which downloads the visitation data.
 }

@@ -1,28 +1,55 @@
-#' Process Adams et al. 2024 Saltwater Intrusion Dataset
+#' @title Prepare the saltwater intrusion points (Adams et al. 2024)
 #'
-#' Reads output_data.txt from the Adams et al. 2024 (GRL) dataset, filters to
-#' CONUS extent, and saves one output:
-#'   1. `swi_points.gpkg` — raw SWI estimation points with Case_C (meters)
+#' @description
+#' Reads `output_data.txt` from the Adams et al. (2024) saltwater intrusion
+#' dataset, keeps the points inside a box around the contiguous US
+#' (longitude -125 to -66, latitude 24 to 50), and returns them as sf points.
+#' [calc_swi_exposure()] uses the result.
 #'
-#' Case_C = combined recharge-change + sea-level-rise driven inland migration
-#' of the saltwater-freshwater interface projected to 2100, in meters.
+#' `Case_C` is the inland migration of the saltwater-freshwater interface
+#' projected to 2100, in meters, from recharge change and sea level rise
+#' combined. Positive values mean the interface moves inland.
 #'
-#' Note: The published SWI point locations originate from a legacy data pipeline
-#' (Sawyer/Zhou et al.) and do not have a one-to-one match with any available
-#' HydroSHEDS watershed shapefile version.
+#' The point locations come from an older data pipeline (Sawyer/Zhou et al.)
+#' and don't match any available HydroSHEDS watershed shapefile one to one.
 #'
-#' Citation: Adams, K.H.; J.T. Reager; B. Buzzanga; C. David; A. Sawyer;
-#' B. Hamlington, 2024, Climate-induced saltwater intrusion in 2100:
-#' recharge-driven severity, sea level-driven prevalence, Geophysical
-#' Research Letters.
+#' Citation: Adams, K.H., Reager, J.T., Buzzanga, B., David, C., Sawyer, A.,
+#' and Hamlington, B. (2024). Climate-induced saltwater intrusion in 2100:
+#' recharge-driven severity, sea level-driven prevalence. Geophysical Research
+#' Letters.
 #'
-#' @param data_path character, path to output_data.txt from the Adams et al. 2024 dataset.
-#'   Defaults to `wava_data_path("all", "coast_comp_data", "adams_swi_2024", "data", "output_data.txt")`.
-#' @param save logical, whether to save output GeoPackage. Defaults to TRUE.
-#' @param output_dir character, directory where gpkg file is written.
-#'   Defaults to `wava_data_path("rapid", "inputs", "swi")`.
+#' @param data_path String. Path to `output_data.txt` (space-separated, with
+#'   `WatershedID`, `lat`, `lon` and `Case_C` columns). Stops with an error if
+#'   the file doesn't exist. Default: `output_data.txt` in
+#'   `all/coast_comp_data/adams_swi_2024/data` in the shared data folder, see
+#'   [wavacore::wava_data_path()].
+#' @param save Logical. Whether to write the points to a GeoPackage.
+#'   * `TRUE`: writes `swi_points.gpkg` to `output_dir`, creating the folder
+#'     if needed and replacing an existing file. Stops with an error if
+#'     `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
+#'   Default: `TRUE`.
+#' @param output_dir String or `NULL`. The folder for `swi_points.gpkg`.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `rapid/inputs/swi` in the shared data folder, which is where
+#'   [calc_swi_exposure()] looks for it.
+#'
+#' @return An sf object of points (CRS 4326), one row per saltwater intrusion
+#'   point, with columns `watershed_id`, `lat`, `lon` and `Case_C` (meters).
 #' @export
+#' @seealso [calc_swi_exposure()], which assigns these values to water
+#'   supplies; [process_coastal_geometry()], which makes the distance-to-coast
+#'   table that exposure function also needs.
+#' @examplesIf file.exists(wavacore::wava_data_path("all", "coast_comp_data", "adams_swi_2024", "data", "output_data.txt"))
+#' # Read the points without writing the GeoPackage
+#' swi <- process_swi_data(save = FALSE)
+#' nrow(swi)
+#' summary(swi$Case_C)
+
 process_swi_data <- function(
     data_path  = wavacore::wava_data_path("all", "coast_comp_data", "adams_swi_2024", "data", "output_data.txt"),
     save       = TRUE,

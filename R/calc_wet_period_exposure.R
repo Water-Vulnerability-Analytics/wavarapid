@@ -1,32 +1,78 @@
-#' Calculate Consecutive Wet-Day Exposure Indicator
+#' @title Wet spell exposure: projected change in the longest wet spell
 #'
-#' Calculates projected change in annual maximum consecutive wet-day spell
-#' length (CWD) from the processed LOCA2 precipitation-extremes dataset. For
-#' each model/SSP/run, exposure is the percent change from historical mean CWD
-#' to future mean CWD. Absolute changes in days are retained as supporting
-#' values. The closest actual model values to the p10, p50, and p90 of the
-#' local ensemble are retained, along with the percentage of models showing
-#' shorter wet spells.
+#' @description
+#' Calculates the change in the yearly maximum number of consecutive wet
+#' days (CWD) at each water supply between a historical and a future period,
+#' from the LOCA2 precipitation-extremes data processed by
+#' [process_precip_period_data()]. For each model and ensemble member, the
+#' historical mean comes from its historical run and the future mean from
+#' each scenario run. The change is the future mean minus the historical
+#' mean, in days and as a percentage of the historical mean.
 #'
-#' More-negative percent changes indicate greater exposure because fewer
-#' consecutive wet days reduce sustained wet-period availability and strengthen
-#' the paired dry/wet precipitation-regime shift described in the water-quality
-#' framework.
+#' The ensemble is then summarized per site: the runs closest to the 10th,
+#' 50th and 90th percentiles of each change, and the percentage of runs with
+#' shorter wet spells. Shorter wet spells mean more exposure: fewer wet days
+#' in a row reduce sustained wet-period water and add to the drier
+#' precipitation regime that [calc_dry_period_exposure()] measures. Only the percent
+#' change is standardized, so the days are not counted twice.
 #'
-#' @param water_supplies An `sf` object containing `wsd_source_id` and
-#'   `park_unit`.
-#' @param period_data Character. Directory containing parquet files created by
-#'   `process_precip_period_data()`.
-#' @param historical Character vector of length 2 giving the historical
-#'   start/end years.
-#' @param future Character vector of length 2 giving the future start/end years.
-#' @param save Logical. If `TRUE`, writes results to disk.
-#' @param output_dir Character. Output directory when `save = TRUE`.
-#' @param verbose Logical. If `TRUE`, prints progress messages.
+#' @param water_supplies sf object. The water supplies, with `wsd_source_id`
+#'   and `park_unit` columns, e.g. from [wavacore::get_wsd()]. Only their IDs
+#'   are used, to pick rows from the processed files. Required.
+#' @param period_data String. The folder of parquet files from
+#'   [process_precip_period_data()]. Stops with an error if it doesn't exist
+#'   or the files lack the expected columns. Default:
+#'   `rapid/inputs/loca_cmip6_precip_periods_water_supplies` in the shared
+#'   data folder, see [wavacore::wava_data_path()].
+#' @param historical Character or numeric vector of 2 years, e.g.
+#'   `c(1980, 2010)`. The first and last year of the historical period, read
+#'   from the historical runs (1950-2014). Required.
+#' @param future Character or numeric vector of 2 years, e.g.
+#'   `c(2035, 2065)`. The first and last year of the future period, read from
+#'   the scenario runs. Required.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `wet_period_exposure_<date>.csv`, named with today's
+#'     date, to `output_dir`, creating the folder if needed. Stops with an
+#'     error if `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
-#' @return A tibble with one row per water supply and wet-period exposure
-#'   indicators.
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints each step, the run time and the path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit` and:
+#'   * `raw_cwd_change_p10`, `_p50`, `_p90`: the change in mean CWD (days) of
+#'     the model run closest to that percentile;
+#'   * `raw_cwd_percent_change_p10`, `_p50`, `_p90`: the same for the percent
+#'     change;
+#'   * `raw_cwd_change_models_showing_decrease`: the percentage of runs with
+#'     shorter wet spells; `raw_cwd_change_model_count`: the number of runs;
+#'   * `norm_*` and `rank_*` versions of the percent changes and of
+#'     `raw_cwd_change_models_showing_decrease`, from
+#'     [add_standardized_indicators()]. The percent changes are inverted, so
+#'     shorter spells get a higher score.
 #' @export
+#' @seealso [calc_dry_period_exposure()], the paired dry spell indicator;
+#'   [calc_wet_period_sensitivity()] for the historical trend;
+#'   [process_precip_period_data()], which makes the input files.
+#' @examplesIf dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca_cmip6_precip_periods_water_supplies"))
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' wet_exp <- calc_wet_period_exposure(ws,
+#'                                     historical = c(1980, 2010),
+#'                                     future = c(2035, 2065))
+#' wet_exp[, c("wsd_source_id", "raw_cwd_percent_change_p50",
+#'             "raw_cwd_change_models_showing_decrease")]
+
 calc_wet_period_exposure <- function(
     water_supplies,
     period_data = wavacore::wava_data_path("rapid", "inputs", "loca_cmip6_precip_periods_water_supplies/"),

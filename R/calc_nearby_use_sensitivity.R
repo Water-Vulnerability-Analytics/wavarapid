@@ -1,26 +1,62 @@
-#' Calculate historical nearby-use pressure from county monthly climatologies
+#' @title Nearby use sensitivity: historical county water withdrawals
 #'
-#' 2000-2020 county withdrawals (public supply + crop irrigation +
-#' thermoelectric, in MGD) from Blumberg and Warziniack, per county area. The
-#' main measure is raw_avg_nearby_use_per_km2. The data are 12 climatological
-#' months, not a yearly series, so no trend can be estimated. A missing month
-#' or known power plant makes a county total NA.
+#' @description
+#' Gives each water supply the 2000-2020 water withdrawals of its county
+#' (public supply, crop irrigation and thermoelectric, in million gallons per
+#' day, MGD), from the Blumberg and Warziniack county data, per km2 of county
+#' land. The main measure is `raw_avg_nearby_use_per_km2`. The data are 12
+#' average months, not a series of years, so no trend is calculated.
 #'
-#' Supplies use the 2020 TIGER/Line county they fall in, or the nearest county
-#' within max_county_distance_km. norm_/rank_ columns are across supplies.
+#' Each water supply gets the 2020 TIGER/Line county it is in (downloaded
+#' with [tigris::counties()], so it needs internet), or the nearest county
+#' within `max_county_distance_km`. The months in `months` are averaged,
+#' weighted by days. A missing month, or a known power plant that doesn't
+#' report, makes the county total `NA`; gaps stay `NA` rather than being read
+#' as zero use. The `norm_` and `rank_` columns are relative to the water
+#' supplies passed in.
 #'
-#' @param water_supplies sf points with wsd_source_id, park_unit, park_name.
-#' @param data_dir Folder with the water_demand_projections CSVs.
-#' @param save,output_dir Save nearby_use_sensitivity_YYYY-MM-DD.csv to output_dir.
-#' @param verbose Report the saved filename.
-#' @param months Calendar months to average (default all 12).
-#' @param max_county_distance_km Nearest-county limit for points outside counties.
-#' @return Tibble with one row per supply. Results are NA when no county falls
-#'   within max_county_distance_km, the county is absent from the historical
-#'   file, or any month or expected plant is unreported. There is no
-#'   data_status column, as every gap here is a historical one. Gaps are left
-#'   NA rather than treated as zero use.
+#' @param water_supplies sf object. The water supplies, as points with
+#'   `wsd_source_id`, `park_unit` and `park_name` columns, e.g. from
+#'   [wavacore::get_wsd()]. Required.
+#' @param data_dir String. The folder with `pub_irr_monthly_avg_2000_2020.csv`
+#'   and `tep_monthly_avg_2000_2020.csv`. Default:
+#'   `Latest county-level data/water_demand_projections` in the shared data
+#'   folder, see [wavacore::wava_data_path()].
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `nearby_use_sensitivity_<date>.csv`, named with today's
+#'     date, to `output_dir`. The folder must already exist; `output_dir`
+#'     can't be `NULL`.
+#'   * `FALSE`: writes nothing.
+#'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file when
+#'   `save = TRUE`; ignored otherwise. Default: `NULL`.
+#' @param verbose Logical. Whether to print the path of the saved file.
+#'   * `TRUE`: prints it when `save = TRUE`.
+#'   * `FALSE`: prints nothing.
+#'
+#'   Default: `TRUE`.
+#' @param months Integer vector. The calendar months (1-12) to average.
+#'   Default: `1:12`.
+#' @param max_county_distance_km Numeric. How far, in km, a supply outside
+#'   every county can be from the nearest county and still use it. Supplies
+#'   farther away get `NA`. Default: `5`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit`, `park_name`, the county (`fips`, `county_area_km2`,
+#'   `county_distance_km`, `county_source`), `raw_avg_nearby_use` (MGD),
+#'   `raw_avg_nearby_use_per_km2` (MGD per km2), and their `norm_` and
+#'   `rank_` versions from [add_standardized_indicators()]. There is no
+#'   `data_status` column; every gap here is historical.
 #' @export
+#' @seealso [calc_nearby_use_exposure()] for the projected change;
+#'   [calc_wta_sensitivity()] for watershed water stress.
+#' @examplesIf interactive() && dir.exists(wavacore::wava_data_path("Latest county-level data", "water_demand_projections"))
+#' # Downloads the county boundaries, so it needs internet
+#' ws <- wavacore::get_wsd(park = c("ZION", "ROMO"))
+#' use_sen <- calc_nearby_use_sensitivity(ws)
+#' use_sen[, c("wsd_source_id", "fips", "raw_avg_nearby_use_per_km2")]
+
 calc_nearby_use_sensitivity <- function(water_supplies,
                                         data_dir = wavacore::wava_data_path("Latest county-level data", "water_demand_projections"),
                                         save = FALSE,

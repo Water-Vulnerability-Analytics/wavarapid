@@ -2,7 +2,7 @@
 % Please edit documentation in R/process_drought_data.R
 \name{process_drought_data}
 \alias{process_drought_data}
-\title{Process monthly drought-input climate data for water supplies}
+\title{Build the monthly precipitation and PET table for drought (SPEI)}
 \usage{
 process_drought_data(
   water_supplies,
@@ -19,39 +19,113 @@ process_drought_data(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with wsd_source_id.}
+\item{water_supplies}{sf object. The water supplies, with a
+\code{wsd_source_id} column, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Only their IDs
+are used, to pick rows from the files. Required.}
 
-\item{precip_data}{Directory containing processed precip parquet files.}
+\item{precip_data}{String. The folder of processed precipitation parquet
+files. Stops with an error if no files are left after the \code{hindcast}
+filter. Default: \code{rapid/inputs/loca2_precipitation_water_supplies} in
+the shared data folder, see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{pet_data}{Directory containing processed PET parquet files.}
+\item{pet_data}{String. The folder of processed PET parquet files, used
+the same way. Default: \code{rapid/inputs/loca2_pet_water_supplies} in the
+shared data folder.}
 
-\item{hindcast}{Logical. TRUE uses GCM historical baseline; FALSE uses training baseline.}
+\item{hindcast}{Logical. Where the historical months come from.
+\itemize{
+\item \code{TRUE}: each model's own historical run (training and Livneh files are
+left out). \code{source_type} is \code{"gcm_historical"}.
+\item \code{FALSE}: the training run, copied to every model, scenario and run
+(only precipitation files whose names contain 2015, 2045, 2075 or
+"training", and PET files with 2015-2100 or "training", are read).
+\code{source_type} is \code{"training"}. Stops with an error if there are no
+training rows.
+}
 
-\item{historical}{Character vector, e.g. c("1995", "2024").}
+Default: \code{TRUE}.}
 
-\item{future}{Character vector, e.g. c("2035", "2065").}
+\item{historical}{Character or numeric vector of 2 years, e.g.
+\code{c("1980", "2010")}. The first and last year of the historical period;
+only the first 4 characters of each are used. Required.}
 
-\item{water_year}{Logical. TRUE uses water-year reporting.}
+\item{future}{Character or numeric vector of 2 years, e.g.
+\code{c("2035", "2065")}. The first and last year of the future period.
+Required.}
 
-\item{output_dir}{Output directory.}
+\item{water_year}{Logical. How months are grouped into years.
+\itemize{
+\item \code{TRUE}: water years, October to September, labelled by the year they
+end in. The padding starts in March, two years before the first year.
+\item \code{FALSE}: calendar years. The padding starts in June, two years before
+the first year.
+}
 
-\item{save}{Logical. Save joined monthly drought parquet?}
+Default: \code{TRUE}.}
 
-\item{verbose}{Logical. Print progress messages?}
+\item{output_dir}{String. The folder for the parquet file when
+\code{save = TRUE}. Default: \code{rapid/inputs} in the shared data folder, which
+is where \code{\link[=calc_drought_exposure]{calc_drought_exposure()}} looks by default.}
+
+\item{save}{Logical. Whether to write the table.
+\itemize{
+\item \code{TRUE}: writes
+\verb{loca2_drought_monthly_<historical>_<future>_hindcast-<TRUE|FALSE>.parquet}
+(e.g. \verb{loca2_drought_monthly_1980-2010_2035-2065_hindcast-TRUE.parquet})
+to \code{output_dir}, creating the folder if needed.
+\item \code{FALSE}: writes nothing.
+}
+
+Default: \code{TRUE}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints each file as it is read, the saved path and the run
+time.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-data.table of monthly drought data.
+A data.table, one row per water supply, model, scenario, run,
+period and month, with columns \code{wsd_source_id}, \code{park_unit}, \code{ym} (first
+day of the month), \code{year}, \code{month}, \code{analysis_year} (water or calendar
+year), \code{drought_period} (\code{"historical"} or \code{"future"}), \code{input_window}
+(\code{"reporting"} or \code{"padding"}), \code{reporting_period} (logical), \code{model},
+\code{ssp}, \code{run}, \code{monthly_precipitation}, \code{monthly_pet},
+\code{climatic_water_balance} (mm), \code{source_type}, \code{source_priority},
+\code{source_model}, \code{source_ssp} and \code{source_run}.
 }
 \description{
-Reads monthly LOCA2 precipitation and PET parquet files,
-aggregates grid cells to site-month-model values, joins precip/PET by parsed
-model/ssp/run/month keys, and returns one monthly drought table ready for
-calc_drought_exposure().
+Reads the processed LOCA2 precipitation and PET parquet files (from
+\code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}), averages the grid cells to one value per water
+supply, month and model run, joins precipitation and PET, and computes the
+climatic water balance (precipitation minus PET). The result is the input
+for \code{\link[=calc_drought_exposure]{calc_drought_exposure()}}.
+
+Each historical and future window is padded with about two years of
+earlier months, more than a 12-month SPEI needs, so
+\code{\link[=calc_drought_exposure]{calc_drought_exposure()}} can trim to the accumulation scale it uses.
+
+Within each model, scenario and run, months from the primary historical
+source come first; the matching SSP run fills historical months the
+primary source doesn't have.
 }
-\details{
-Historical assembly:
-\itemize{
-\item hindcast = TRUE: GCM historical first, matching SSP fills missing months.
-\item hindcast = FALSE: training/Livneh first, matching SSP fills missing months.
+\examples{
+\dontshow{if (interactive() && dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_pet_water_supplies"))) withAutoprint(\{ # examplesIf}
+# Reads about 9 GB of processed precipitation and PET files, so it takes
+# a long time
+ws <- wavacore::get_wsd(park = "ZION")
+drought_monthly <- process_drought_data(ws,
+                                        historical = c("1980", "2010"),
+                                        future = c("2035", "2065"),
+                                        save = FALSE)
+head(drought_monthly)
+\dontshow{\}) # examplesIf}
 }
+\seealso{
+\code{\link[=calc_drought_exposure]{calc_drought_exposure()}}, which calculates SPEI from this table;
+\code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}, which makes the parquet files it reads;
+\code{\link[=calc_drought_sensitivity]{calc_drought_sensitivity()}} for the historical drought indicator.
 }

@@ -1,41 +1,69 @@
-#' Process Modeled Distance to Groundwater (Water Table) Depth for Water Supplies
+#' @title Modeled depth to the water table at each water supply
 #'
-#' Extracts modeled water table depth (WTD) at each water supply point from
-#' the CONUS-wide random forest WTD model. For those points that do not overlap 
-#' with the raster dataset and therefore are NA we assign them the closest 
-#' available raster value within a 50km buffer.
-#' 
-#' The source raster is stored as full-width LZW-compressed scanline strips
-#' not tiles — so points are sorted by raster row before extraction to avoid 
-#' re-decompressing the same strip out of sequence, then restored to their 
+#' @description
+#' Reads the modeled water table depth (WTD) at each water supply point from
+#' the CONUS random forest WTD model. Points with no value (a NoData cell, or
+#' just outside the raster) get the value of the nearest valid cell. The
+#' search starts at `start_buffer_m` and doubles until it finds one, up to
+#' `max_buffer_m`; points with no valid cell within that stay `NA`. The search
+#' runs in parallel on all but two CPU cores (with
+#' [future::multisession]), and the future plan is set back to sequential
+#' afterwards.
+#'
+#' The points are read in raster-row order, because the raster is stored in
+#' full-width strips rather than tiles; the results are put back in the
 #' original order.
-#' 
-#' Saves one output:
-#'   1. `wtd_all_sites.csv` — wsd_source_id, park_unit, park_name, wtd_point_m
 #'
-#' Point extraction (rather than a buffer mean) was validated against WSD
-#' sites with recorded static water levels in
-#' `Explore/explore_groundwater_depth.Rmd` and found to best match the
-#' published model's own performance metrics.
+#' Reading the value at the point, rather than a mean over a buffer, matched
+#' WSD sites with recorded static water levels best (see
+#' `Explore/explore_groundwater_depth.Rmd` in `nps_water_vulnerability`).
 #'
 #' Citation: Zenodo record 18504963,
-#' https://ngwa.onlinelibrary.wiley.com/doi/10.1111/gwat.13362
+#' <https://ngwa.onlinelibrary.wiley.com/doi/10.1111/gwat.13362>.
 #'
-#' @param water_supplies sf object with wsd_source_id, park_unit, park_name.
-#' @param wtd_path character, path to the CONUS WTD raster. Defaults to the
-#'   local copy downloaded from Zenodo; can also be a `/vsicurl/` URL.
-#' @param start_buffer_m numeric, initial search radius (m) used to fill
-#'   sites with no raster overlap. Defaults to 500.
-#' @param max_buffer_m numeric, largest search radius (m) tried before giving
-#'   up on a site. Defaults to 50000.
-#' @param save logical, whether to save output CSV. Defaults to TRUE.
-#' @param output_dir character, directory where CSV is written.
-#'   Defaults to `wava_data_path("rapid", "inputs", "groundwater_depth")`.
-#' @param verbose logical, print progress messages. Defaults to TRUE.
+#' @param water_supplies sf object. The water supplies, as points with
+#'   `wsd_source_id`, `park_unit` and `park_name` columns, e.g. from
+#'   [wavacore::get_wsd()]. Required.
+#' @param wtd_path String. Path to the CONUS WTD raster (meters). Can also be
+#'   a `/vsicurl/` URL, so GDAL reads only the parts it needs. Default: the
+#'   copy downloaded from Zenodo, in `all/groundwater_sensitivity` in the
+#'   shared data folder (about 37 GB), see [wavacore::wava_data_path()].
+#' @param start_buffer_m Numeric. The first search radius, in meters, for
+#'   points with no value. Default: `500`.
+#' @param max_buffer_m Numeric. The largest search radius, in meters. Points
+#'   with no valid cell within it get `NA`. Default: `50000` (50 km).
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `wtd_all_sites.csv` to `output_dir`, creating the folder
+#'     if needed and replacing an existing file. Stops with an error if
+#'     `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
-#' @return data.frame of wsd_source_id, park_unit, park_name, wtd_point_m.
-
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for `wtd_all_sites.csv`.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `rapid/inputs/groundwater_depth` in the shared data folder.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints how many points are being filled, each point left as
+#'     `NA`, and the run time.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A data frame, one row per water supply, with columns
+#'   `wsd_source_id`, `park_unit`, `park_name` and `wtd_point_m` (depth to
+#'   the water table in meters).
 #' @export
+#' @seealso [calc_groundwater_depth_sensitivity()], which uses
+#'   `wtd_all_sites.csv` where a supply has no recorded well depth.
+#' @examplesIf interactive() && file.exists(wavacore::wava_data_path("all", "groundwater_sensitivity", "wtd_mean_estimate_RF_additional_inputs_dummy_drop0LP_1s_CONUS2_m_v_20240813.tif"))
+#' # The default raster is about 37 GB, so the first read takes a long time
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' wtd <- process_groundwater_depth(ws)
+#' wtd
+
 process_groundwater_depth <- function(
     water_supplies,
     wtd_path       = wavacore::wava_data_path("all", "groundwater_sensitivity",
