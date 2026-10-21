@@ -6,8 +6,9 @@
 \usage{
 calc_drought_sensitivity(
   water_supplies,
-  precip_data = wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/"),
-  pet_data = wava_data_path("rapid", "inputs", "loca2_pet_water_supplies/"),
+  precip_data = wavacore::wava_data_path("rapid", "inputs",
+    "loca2_precipitation_water_supplies/"),
+  pet_data = wavacore::wava_data_path("rapid", "inputs", "loca2_pet_water_supplies/"),
   spei_scale = 12,
   spei_inf_cap = 4,
   drought_threshold = -1,

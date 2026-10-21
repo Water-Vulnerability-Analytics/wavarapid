@@ -46,7 +46,7 @@
 #'   States. J. Hydrology, 547, 208-221.
 #' @export
 calc_runoff_timing_exposure <- function(water_supplies,
-                                        runoff_data = wava_data_path("rapid", "inputs", "loca2_runoff_water_supplies/"),
+                                        runoff_data = wavacore::wava_data_path("rapid", "inputs", "loca2_runoff_water_supplies/"),
                                         hindcast = TRUE,
                                         historical,
                                         future,
@@ -75,7 +75,7 @@ calc_runoff_timing_exposure <- function(water_supplies,
   # minus-historical difference.
   .wy_month_order <- c(10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9)
   .mlen           <- c(31, 30, 31, 31, 28, 31, 30, 31, 30, 31, 31, 30)
-  dowy_lookup     <- stats::setNames(cumsum(c(0, head(.mlen, -1))) + .mlen / 2,
+  dowy_lookup     <- stats::setNames(cumsum(c(0, utils::head(.mlen, -1))) + .mlen / 2,
                                      .wy_month_order)
   angle_lookup    <- 2 * pi * dowy_lookup / 365
   

@@ -6,7 +6,7 @@
 \usage{
 calc_swe_sensitivity(
   water_supplies,
-  swe_data = wava_data_path("rapid", "inputs", "loca2_swe_water_supplies/"),
+  swe_data = wavacore::wava_data_path("rapid", "inputs", "loca2_swe_water_supplies/"),
   historical,
   water_year = TRUE,
   save = FALSE,

@@ -6,7 +6,7 @@
 \usage{
 calc_drought_exposure(
   water_supplies,
-  drought_data = wava_data_path("rapid", "inputs",
+  drought_data = wavacore::wava_data_path("rapid", "inputs",
     "loca2_drought_monthly_1980-2010_2035-2065_hindcast-TRUE.parquet"),
   spei_scale = 12,
   spei_inf_cap = 4,

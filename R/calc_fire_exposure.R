@@ -31,21 +31,21 @@ calc_fire_exposure <- function(water_supplies,
   start_time <- Sys.time()
   
   # convert both objects to terra for faster filtering
-  pyrome_data <- vect(pyrome_data)
-  water_supplies <- vect(water_supplies)
+  pyrome_data <- terra::vect(pyrome_data)
+  water_supplies <- terra::vect(water_supplies)
   
   # Calc percentiles and model agreement for all pyromes
   # Pull 10th, 50th and 90th percentile values for each pyrome
   pyromes_selected <- fire_prob_data %>%
-    group_by(PYROME) %>%
-  slice(c(
-    which.min(abs(delta_fp - quantile(delta_fp, 0.1))),
-    which.min(abs(delta_fp - quantile(delta_fp, 0.5))),
-    which.min(abs(delta_fp - quantile(delta_fp, 0.9)))
+    dplyr::group_by(PYROME) %>%
+  dplyr::slice(c(
+    which.min(abs(delta_fp - stats::quantile(delta_fp, 0.1))),
+    which.min(abs(delta_fp - stats::quantile(delta_fp, 0.5))),
+    which.min(abs(delta_fp - stats::quantile(delta_fp, 0.9)))
   )) %>%
-  mutate(percentile = c("p10", "p50", "p90")) %>%
-    ungroup() %>%
-    pivot_wider(
+  dplyr::mutate(percentile = c("p10", "p50", "p90")) %>%
+    dplyr::ungroup() %>%
+    tidyr::pivot_wider(
       names_from = percentile,
       values_from = c(GCM, delta_fp),
       names_sep = "_"
@@ -53,14 +53,14 @@ calc_fire_exposure <- function(water_supplies,
   
   # calculate fraction of models showing increase
   model_fractions <- fire_prob_data %>%
-    group_by(PYROME) %>%
-    summarize(
-      fire_models_showing_increase = 100 * sum(delta_fp > 0, na.rm = TRUE) / n(),
+    dplyr::group_by(PYROME) %>%
+    dplyr::summarize(
+      fire_models_showing_increase = 100 * sum(delta_fp > 0, na.rm = TRUE) / dplyr::n(),
       .groups = "drop"
     )
   
   # join percentiles and model agreements
-  fire_prob_cleaned <- left_join(pyromes_selected, model_fractions, by = "PYROME")
+  fire_prob_cleaned <- dplyr::left_join(pyromes_selected, model_fractions, by = "PYROME")
   
   # Create progress bar
   if (verbose) {
@@ -73,11 +73,11 @@ calc_fire_exposure <- function(water_supplies,
   }
   
   # Process each water supply
-  results <- map_dfr(seq_len(nrow(water_supplies)), function(i) {
+  results <- purrr::map_dfr(seq_len(nrow(water_supplies)), function(i) {
     if (verbose) pb$tick()
     
     # Get water supply pyrome
-    ws_pyrome <- pyrome_data[relate(pyrome_data, water_supplies[i,], "intersects"), ]
+    ws_pyrome <- pyrome_data[terra::relate(pyrome_data, water_supplies[i,], "intersects"), ]
     
     # Fall back to nearest pyrome for water supplies outside pyrome coverage (e.g., non-CONUS)
     if (nrow(ws_pyrome) == 0) {
@@ -87,13 +87,13 @@ calc_fire_exposure <- function(water_supplies,
     
     # Extract fire probability data for this pyrome
     fp_data <- fire_prob_cleaned %>% 
-      filter(PYROME %in% ws_pyrome$PYROME) %>%
-      mutate(
+      dplyr::filter(PYROME %in% ws_pyrome$PYROME) %>%
+      dplyr::mutate(
         wsd_source_id = water_supplies[i, ]$wsd_source_id,
         park_unit = water_supplies[i, ]$park_unit,
         park_name = water_supplies[i, ]$park_name
       ) %>%
-      select(wsd_source_id, park_unit, park_name, everything())
+      dplyr::select(wsd_source_id, park_unit, park_name, dplyr::everything())
     
     return(fp_data)
   })
@@ -101,7 +101,7 @@ calc_fire_exposure <- function(water_supplies,
   # Calculate standardized indicators
   final_results <- results %>%
     # Raw values (renamed for consistency)
-    rename(
+    dplyr::rename(
       raw_fire_prob_change_p10 = delta_fp_p10,
       raw_fire_prob_change_p50 = delta_fp_p50,
       raw_fire_prob_change_p90 = delta_fp_p90,
@@ -115,7 +115,7 @@ calc_fire_exposure <- function(water_supplies,
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     
     filename <- file.path(output_dir, paste0("fire_exposure_", Sys.Date(), ".csv"))
-    write_csv(final_results, filename)
+    readr::write_csv(final_results, filename)
     
     if (verbose) {
       message("Results saved to: ", filename)

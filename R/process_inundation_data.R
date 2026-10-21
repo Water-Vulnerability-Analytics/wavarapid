@@ -29,10 +29,10 @@
 #' @param output_dir Directory to save the datasets that will be used as inputs for the
 #'   calculation of inundation exposure.
 #' @export
-process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coast_comp_data"),
+process_inundation_data <- function(coast_dir_path = wavacore::wava_data_path("all", "coast_comp_data"),
                                     water_supplies,
                                     save       = TRUE,
-                                    output_dir = wava_data_path("rapid", "inputs", "coast_comp")) {
+                                    output_dir = wavacore::wava_data_path("rapid", "inputs", "coast_comp")) {
   
   stopifnot("save is TRUE but output_dir not provided" = !save || !is.null(output_dir))
   
@@ -42,13 +42,13 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
   # use this dataset to do our inundation risk analysis.
 
   transformed_ws <- water_supplies %>%
-    st_transform(5070) %>% # NAD83 / Conus Albers (meters)
-    rowid_to_column(var = "ID")
+    sf::st_transform(5070) %>% # NAD83 / Conus Albers (meters)
+    tibble::rowid_to_column(var = "ID")
 
   all_buffer_ws <- transformed_ws %>%
-    st_buffer(4000) %>%
-    st_transform(4326) %>%
-    mutate(buffer_km = 4)
+    sf::st_buffer(4000) %>%
+    sf::st_transform(4326) %>%
+    dplyr::mutate(buffer_km = 4)
 
   # Save the buffered water supplies
   sf::st_write(all_buffer_ws,
@@ -131,8 +131,8 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
   )
   
   # Join water supply inundation projections to the water supply buffer data frame
-  ws_itf_slr_proj <- left_join(all_buffer_ws, water_supply_inundation_values, by = "ID") %>%
-    rename(inun_proj_mm = `rsl_total_IntHigh_percentiles=83_4`)
+  ws_itf_slr_proj <- dplyr::left_join(all_buffer_ws, water_supply_inundation_values, by = "ID") %>%
+    dplyr::rename(inun_proj_mm = `rsl_total_IntHigh_percentiles=83_4`)
   
   # Save the dataset
   sf::st_write(ws_itf_slr_proj,
@@ -174,7 +174,7 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
   # Initialize (or clear) the master file before appending
   file.create(tif_txt_path)
 
-  walk(
+  purrr::walk(
     state_codes,
     function(state_code) {
       txt_url   <- paste0("https://coast.noaa.gov/slrdata/Extent_Rasters/", state_code, "/URLlist_", state_code, ".txt")
@@ -190,37 +190,37 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
   )
   
   # Read in the text file as a vector
-  tif_vec <- read_lines(tif_txt_path)
+  tif_vec <- readr::read_lines(tif_txt_path)
   
-  tif_df <- tibble(url = tif_vec) %>%
-    mutate(raw_file = basename(url),
-           file = str_replace(raw_file, "_Redacted", ""),
-           info = str_split(str_remove(file, ".tif"), "_"),
-           state = map_chr(info, ~ .x[1]),
-           depth_ft = map(info, ~ {
+  tif_df <- dplyr::tibble(url = tif_vec) %>%
+    dplyr::mutate(raw_file = basename(url),
+           file = stringr::str_replace(raw_file, "_Redacted", ""),
+           info = stringr::str_split(stringr::str_remove(file, ".tif"), "_"),
+           state = purrr::map_chr(info, ~ .x[1]),
+           depth_ft = purrr::map(info, ~ {
              n <- length(.x)
              if (n >= 2) {
                last_two   <- .x[(n-1):n]
-               is_numeric <- str_detect(last_two, "^\\d+(\\.\\d+)?$")
-               if (all(is_numeric))  return(as.numeric(str_flatten(last_two, collapse = ".")))
+               is_numeric <- stringr::str_detect(last_two, "^\\d+(\\.\\d+)?$")
+               if (all(is_numeric))  return(as.numeric(stringr::str_flatten(last_two, collapse = ".")))
                if (is_numeric[2])    return(as.numeric(.x[n]))
-             } else if (n >= 1 && str_detect(.x[n], "^\\d+(\\.\\d+)?$")) {
+             } else if (n >= 1 && stringr::str_detect(.x[n], "^\\d+(\\.\\d+)?$")) {
                return(as.numeric(.x[n]))
              }
              return(NA_real_)
            })
     ) %>%
-    select(-info) %>%
-    filter(!is.na(depth_ft)) %>%
-    mutate(depth_ft  = as.numeric(depth_ft),
+    dplyr::select(-info) %>%
+    dplyr::filter(!is.na(depth_ft)) %>%
+    dplyr::mutate(depth_ft  = as.numeric(depth_ft),
            depth_m   = depth_ft * 0.3048,
            depth_mm  = round(depth_m * 1000, 1),
-           inun_region = str_remove(file, "_[0-9_]+\\.tif$"),
-           inun_region = str_remove(inun_region, "_connectRaster|_connnectRaster")) %>%
-    select(url, file = raw_file, state, inun_region, depth_ft, depth_m, depth_mm) %>%
-    filter(!state %in% c("AK", "AS", "HI", "MP", "PR", "VI", "Guam", "CNMI", "USVI"))
+           inun_region = stringr::str_remove(file, "_[0-9_]+\\.tif$"),
+           inun_region = stringr::str_remove(inun_region, "_connectRaster|_connnectRaster")) %>%
+    dplyr::select(url, file = raw_file, state, inun_region, depth_ft, depth_m, depth_mm) %>%
+    dplyr::filter(!state %in% c("AK", "AS", "HI", "MP", "PR", "VI", "Guam", "CNMI", "USVI"))
   
-  write_csv(tif_df, file.path(coast_dir_path, "NOAA_SLRV_2022", "ALL_extent_raster_URLlist.csv"))
+  readr::write_csv(tif_df, file.path(coast_dir_path, "NOAA_SLRV_2022", "ALL_extent_raster_URLlist.csv"))
   
   ## Download the reference inundation surface datasets ----
   
@@ -245,7 +245,7 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
   download_NOAA_inun_slr_tif_data <- function(tif_url_df,
                                               save_dir = file.path(output_dir, "Extent_Rasters")) {
     tif_url_df %>%
-      pwalk(function(url, file, state, ...) {
+      purrr::pwalk(function(url, file, state, ...) {
         
         # Create state directory if it doesn't exist
         dest_dir  <- file.path(save_dir, state)
@@ -257,7 +257,7 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
         # Try to download data 3 times
         for (i in 1:3) {
           tryCatch({
-            download.file(url = url, destfile = dest_file, mode = "wb")
+            utils::download.file(url = url, destfile = dest_file, mode = "wb")
             cat("\nDownload succeeded (attempt:", i, ") for:", file, "\n")
             break # exit the for loop on success
           }, error = function(e) {
@@ -281,8 +281,8 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
   dir.create(extent_rasters_dir, recursive = TRUE)
 
   reference_tif_df <- tif_df %>%
-    group_by(inun_region) %>%
-    slice_min(depth_ft)
+    dplyr::group_by(inun_region) %>%
+    dplyr::slice_min(depth_ft)
   
   download_NOAA_inun_slr_tif_data(tif_url_df = reference_tif_df,
                                   save_dir = file.path(output_dir, "Extent_Rasters"))
@@ -307,7 +307,7 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
   raster_f <- raster_f[basename(raster_f) %in% reference_tif_df$file]
   
   # Generate inundation region bounding boxes from the downloaded reference rasters
-  inun_region_bboxs <- map(raster_f, function(f) {
+  inun_region_bboxs <- purrr::map(raster_f, function(f) {
     region_name <- tools::file_path_sans_ext(basename(f))
     region_name <- sub("_connectRaster.*", "", region_name)
     
@@ -315,7 +315,7 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
     bbox_sf <- sf::st_as_sf(sf::st_as_sfc(sf::st_bbox(rast))) %>%
       sf::st_set_crs(terra::crs(rast)) %>%
       sf::st_transform(4326) %>%
-      mutate(inun_region = region_name)
+      dplyr::mutate(inun_region = region_name)
     
     rm(rast)
     Sys.sleep(1)
@@ -323,9 +323,9 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
     
     bbox_sf
   }) %>%
-    bind_rows() %>%
-    mutate(state = str_extract(inun_region, "^[A-Z]{2}")) %>%
-    distinct()
+    dplyr::bind_rows() %>%
+    dplyr::mutate(state = stringr::str_extract(inun_region, "^[A-Z]{2}")) %>%
+    dplyr::distinct()
   
   sf::st_write(inun_region_bboxs,
                file.path(coast_dir_path, "NOAA_SLRV_2022", "inundation_data", "inun_region_bboxs.gpkg"),
@@ -335,16 +335,16 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
   # Sites with multiple candidates exist.
   ws_inun_joined <- sf::st_join(ws_itf_slr_proj,
                                 inun_region_bboxs %>%
-                                  rename(inun_state = state) %>%
-                                  select(inun_region, inun_state),
+                                  dplyr::rename(inun_state = state) %>%
+                                  dplyr::select(inun_region, inun_state),
                                 join = sf::st_intersects,
                                 left = TRUE)
   
   ws_inun_regions <- ws_inun_joined %>%
     # Nullify projection if no region matched
-    mutate(inun_proj_mm = ifelse(is.na(inun_region), NA, inun_proj_mm),
+    dplyr::mutate(inun_proj_mm = ifelse(is.na(inun_region), NA, inun_proj_mm),
            # Map ITF projection to nearest available NOAA inundation depth increment
-           inun_proj_closest_mm = case_when(inun_proj_mm <= 0.0    ~ 0.0,
+           inun_proj_closest_mm = dplyr::case_when(inun_proj_mm <= 0.0    ~ 0.0,
                                             inun_proj_mm <= 152.4  ~ 152.4,
                                             inun_proj_mm <= 304.8  ~ 304.8,
                                             inun_proj_mm <= 457.2  ~ 457.2,
@@ -356,7 +356,7 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
                                             inun_proj_mm <= 1371.6 ~ 1371.6,
                                             inun_proj_mm <= 3048.0 ~ 3048.0,
                                             TRUE ~ NA_real_)) %>%
-    relocate(inun_proj_closest_mm, .after = inun_proj_mm)
+    dplyr::relocate(inun_proj_closest_mm, .after = inun_proj_mm)
   
   rm(ws_inun_joined)
   gc()
@@ -365,14 +365,14 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
   # relevant inundation surface datasets from NOAA.
   
   relevant_ws_inun_proj <- ws_inun_regions %>%
-    drop_na(inun_proj_closest_mm) %>%
-    select(depth_mm = inun_proj_closest_mm, inun_region) %>%
-    mutate(depth_mm = round(depth_mm, 1)) %>%
-    distinct(depth_mm, inun_region)
+    tidyr::drop_na(inun_proj_closest_mm) %>%
+    dplyr::select(depth_mm = inun_proj_closest_mm, inun_region) %>%
+    dplyr::mutate(depth_mm = round(depth_mm, 1)) %>%
+    dplyr::distinct(depth_mm, inun_region)
   
   download_tif_df <- relevant_ws_inun_proj %>%
-    left_join(tif_df, by = c("inun_region", "depth_mm")) %>%
-    drop_na(url)
+    dplyr::left_join(tif_df, by = c("inun_region", "depth_mm")) %>%
+    tidyr::drop_na(url)
   
   download_NOAA_inun_slr_tif_data(tif_url_df = download_tif_df,
                                   save_dir = file.path(output_dir, "Extent_Rasters"))
@@ -393,16 +393,16 @@ process_inundation_data <- function(coast_dir_path = wava_data_path("all", "coas
   # `ref_file`: Local base file name of the reference (0 feet SLR) inundation surface raster for baseline conditions.
   
   updated_ws_inun_proj <- ws_itf_slr_proj %>%
-    inner_join(ws_inun_regions %>% st_drop_geometry() %>% select(ID, buffer_km, inun_region, inun_proj_closest_mm),
+    dplyr::inner_join(ws_inun_regions %>% sf::st_drop_geometry() %>% dplyr::select(ID, buffer_km, inun_region, inun_proj_closest_mm),
                by = c("ID", "buffer_km")) %>%
-    left_join(download_tif_df %>% select(-state),
+    dplyr::left_join(download_tif_df %>% dplyr::select(-state),
               by = c("inun_region", "inun_proj_closest_mm" = "depth_mm")) %>%
-    left_join(reference_tif_df %>% select(inun_region, reference_file = file),
+    dplyr::left_join(reference_tif_df %>% dplyr::select(inun_region, reference_file = file),
               by = "inun_region") %>%
-    rename(inun_surf_url = url, proj_file = file, ref_file = reference_file) %>%
-    relocate(depth_ft, depth_m, .after = inun_proj_closest_mm) %>%
-    relocate(geometry, .after = last_col()) %>%
-    filter(!is.na(ref_file), !is.na(proj_file))
+    dplyr::rename(inun_surf_url = url, proj_file = file, ref_file = reference_file) %>%
+    dplyr::relocate(depth_ft, depth_m, .after = inun_proj_closest_mm) %>%
+    dplyr::relocate(geometry, .after = dplyr::last_col()) %>%
+    dplyr::filter(!is.na(ref_file), !is.na(proj_file))
   
   if (save) {
     sf::st_write(updated_ws_inun_proj,

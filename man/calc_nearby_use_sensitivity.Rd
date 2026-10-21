@@ -6,7 +6,8 @@
 \usage{
 calc_nearby_use_sensitivity(
   water_supplies,
-  data_dir = wava_data_path("Latest county-level data", "water_demand_projections"),
+  data_dir = wavacore::wava_data_path("Latest county-level data",
+    "water_demand_projections"),
   save = FALSE,
   output_dir = NULL,
   verbose = TRUE,

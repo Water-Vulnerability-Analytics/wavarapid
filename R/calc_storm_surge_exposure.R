@@ -34,7 +34,7 @@
 #' @export
 calc_storm_surge_exposure <- function(water_supplies,
                                       storm_surge_stations,
-                                      coast_geometry = wava_data_path("rapid",
+                                      coast_geometry = wavacore::wava_data_path("rapid",
                                                             "inputs", "coast_comp",
                                                             "coastal_site_geometry.csv"),
                                       save = FALSE,
@@ -66,13 +66,13 @@ calc_storm_surge_exposure <- function(water_supplies,
   # Prepare the storm surge data for indicator calculation
   prepped_stations <- storm_surge_stations %>%
     # Removing CMCC-CM2-VHR4 model since it has spurious results. 
-    filter(!grepl("CMCC-CM2-VHR4", model)) %>% 
-    group_by(station_idx) %>%
-    mutate(raw_surge_change_max = future_mean - reference_mean,
+    dplyr::filter(!grepl("CMCC-CM2-VHR4", model)) %>% 
+    dplyr::group_by(station_idx) %>%
+    dplyr::mutate(raw_surge_change_max = future_mean - reference_mean,
            raw_surge_pct_change_max = ((future_mean - reference_mean) / reference_mean) * 100) %>%
-    slice_max(raw_surge_pct_change_max, n = 1, with_ties = FALSE) %>%
-    ungroup() %>%
-    select(station_idx, model, raw_surge_change_max, raw_surge_pct_change_max, lat, lon)
+    dplyr::slice_max(raw_surge_pct_change_max, n = 1, with_ties = FALSE) %>%
+    dplyr::ungroup() %>%
+    dplyr::select(station_idx, model, raw_surge_change_max, raw_surge_pct_change_max, lat, lon)
   
   # Load coastal site geometries if a file path was supplied
   if (is.character(coast_geometry)) {

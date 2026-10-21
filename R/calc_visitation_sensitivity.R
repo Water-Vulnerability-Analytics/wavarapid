@@ -62,7 +62,7 @@ calc_visitation_sensitivity <- function(water_supplies,
     visitation_code <- unname(visitation_code_crosswalk[park_unit_clean])
     if (is.na(visitation_code)) visitation_code <- park_unit_clean
 
-    visitation <- getUnitVisitation(units = visitation_code,
+    visitation <- wavacore::getUnitVisitation(units = visitation_code,
                                     startYear = start_year,
                                     endYear = end_year)
     
@@ -138,8 +138,8 @@ calc_visitation_sensitivity <- function(water_supplies,
     # over the analysis period
     add_standardized_indicators("raw_scaled_trend_visitation") %>%
     add_standardized_indicators("raw_avg_visitation") %>% 
-    st_drop_geometry() %>%
-    select(wsd_source_id, park_unit, everything()) 
+    sf::st_drop_geometry() %>%
+    dplyr::select(wsd_source_id, park_unit, dplyr::everything()) 
   
   if (save) {
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)

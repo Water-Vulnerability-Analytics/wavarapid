@@ -6,10 +6,10 @@
 \usage{
 process_waterrightsindicator_data(
   water_supplies,
-  gdb_path = wava_data_path("all", "aqueduct_v4",
+  gdb_path = wavacore::wava_data_path("all", "aqueduct_v4",
     "Aqueduct40_waterrisk_download_Y2023M07D05", "GDB", "Aq40_Y2023D07M05.gdb"),
   save = TRUE,
-  output_dir = wava_data_path("rapid", "inputs", "WaterRightsIndicator"),
+  output_dir = wavacore::wava_data_path("rapid", "inputs", "WaterRightsIndicator"),
   save_intermediate = TRUE,
   verbose = TRUE,
   quiet_warnings = TRUE

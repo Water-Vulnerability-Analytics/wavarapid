@@ -6,7 +6,8 @@
 \usage{
 calc_temp_sensitivity(
   water_supplies,
-  temp_data = wava_data_path("rapid", "inputs", "loca2_temperature_water_supplies/"),
+  temp_data = wavacore::wava_data_path("rapid", "inputs",
+    "loca2_temperature_water_supplies/"),
   historical,
   water_year = TRUE,
   save = FALSE,

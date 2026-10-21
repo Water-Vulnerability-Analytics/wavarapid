@@ -6,7 +6,7 @@
 \usage{
 calc_waterrights_exposure(
   water_supplies,
-  stress_data = wava_data_path("rapid", "inputs", "WaterRightsIndicator",
+  stress_data = wavacore::wava_data_path("rapid", "inputs", "WaterRightsIndicator",
     "waterrights_stress_long.csv"),
   period = "2050",
   save = FALSE,

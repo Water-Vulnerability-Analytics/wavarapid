@@ -36,11 +36,11 @@
 #'
 #' @export
 process_coastal_geometry <- function(water_supplies,
-                                     cusp_dir_path = wava_data_path("all", "coast_comp_data", "NOAA_CUSP"),
+                                     cusp_dir_path = wavacore::wava_data_path("all", "coast_comp_data", "NOAA_CUSP"),
                                      ncpu = 6,
                                      max_coast_dist_m = 50000,
                                      save = TRUE,
-                                     output_dir = wava_data_path("rapid", "inputs", "coast_comp"),
+                                     output_dir = wavacore::wava_data_path("rapid", "inputs", "coast_comp"),
                                      verbose = TRUE) {
   
   # Input validation
@@ -69,21 +69,21 @@ process_coastal_geometry <- function(water_supplies,
     message("Reading and combining ", length(shp_files), " CUSP shoreline tiles...")
   }
   
-  tiles <- map(shp_files, ~ sf::st_read(.x, quiet = TRUE))
+  tiles <- purrr::map(shp_files, ~ sf::st_read(.x, quiet = TRUE))
   cusp_shoreline <- do.call(rbind, tiles)
   
   cusp_proj <- sf::st_transform(cusp_shoreline, 5070)
   ws_proj <- sf::st_transform(water_supplies, 5070)
   
-  nearest_idx <- st_nearest_feature(ws_proj, cusp_proj)
-  dist_to_nearest <- st_distance(ws_proj, cusp_proj[nearest_idx, ], by_element = TRUE)
+  nearest_idx <- sf::st_nearest_feature(ws_proj, cusp_proj)
+  dist_to_nearest <- sf::st_distance(ws_proj, cusp_proj[nearest_idx, ], by_element = TRUE)
   
   coast_distances <- ws_proj %>%
-    mutate(
+    dplyr::mutate(
       dist_to_nearest = as.numeric(dist_to_nearest),
-      coast_dist_m    = if_else(dist_to_nearest > max_coast_dist_m, NA_real_, dist_to_nearest)
+      coast_dist_m    = dplyr::if_else(dist_to_nearest > max_coast_dist_m, NA_real_, dist_to_nearest)
     ) %>%
-    select(wsd_source_id, park_unit, park_name, coast_dist_m) 
+    dplyr::select(wsd_source_id, park_unit, park_name, coast_dist_m) 
   
   # Grab relevant coastal water supply sites' elevations
   
@@ -104,7 +104,7 @@ process_coastal_geometry <- function(water_supplies,
     dplyr::select(wsd_source_id, park_unit, park_name, 
                   coast_elev_m = elevation)
   
-  coast_geometries <- left_join(coast_distances, coast_elevations,
+  coast_geometries <- dplyr::left_join(coast_distances, coast_elevations,
                                 by = c("wsd_source_id", "park_unit", "park_name")) %>%
     sf::st_drop_geometry()
   
@@ -113,7 +113,7 @@ process_coastal_geometry <- function(water_supplies,
     if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
     
     geometry_path <- file.path(output_dir, "coastal_site_geometry.csv")
-    write_csv(coast_geometries, geometry_path)
+    readr::write_csv(coast_geometries, geometry_path)
     
     shoreline_path <- file.path(cusp_dir_path, "cusp_shorelines.gpkg")
     sf::st_write(cusp_shoreline, shoreline_path,

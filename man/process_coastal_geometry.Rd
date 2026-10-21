@@ -6,11 +6,11 @@
 \usage{
 process_coastal_geometry(
   water_supplies,
-  cusp_dir_path = wava_data_path("all", "coast_comp_data", "NOAA_CUSP"),
+  cusp_dir_path = wavacore::wava_data_path("all", "coast_comp_data", "NOAA_CUSP"),
   ncpu = 6,
   max_coast_dist_m = 50000,
   save = TRUE,
-  output_dir = wava_data_path("rapid", "inputs", "coast_comp"),
+  output_dir = wavacore::wava_data_path("rapid", "inputs", "coast_comp"),
   verbose = TRUE
 )
 }

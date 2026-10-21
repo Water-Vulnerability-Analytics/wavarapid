@@ -6,7 +6,8 @@
 \usage{
 calc_precip_exposure(
   water_supplies,
-  precip_data = wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/"),
+  precip_data = wavacore::wava_data_path("rapid", "inputs",
+    "loca2_precipitation_water_supplies/"),
   hindcast = TRUE,
   historical,
   future,
