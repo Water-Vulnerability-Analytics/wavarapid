@@ -32,6 +32,7 @@ Imports:
     future,
     geosphere,
     lubridate,
+    magrittr,
     ncdf4,
     nngeo,
     progress,

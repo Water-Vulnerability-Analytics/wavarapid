@@ -23,7 +23,7 @@
 #' @importFrom sf st_is_empty st_join st_make_valid st_nearest_feature st_read
 #' @importFrom sf st_transform st_union st_write
 #' @importFrom stats coef lm median na.omit predict quantile sd weighted.mean
-#' @importFrom stringr `%>%` str_extract str_remove str_replace str_split
+#' @importFrom stringr str_extract str_remove str_replace str_split
 #' @importFrom stringr str_starts
 #' @importFrom terra crds crs rast relate vect
 #' @importFrom tibble rowid_to_column
