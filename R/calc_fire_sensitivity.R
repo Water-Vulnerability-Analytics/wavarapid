@@ -33,7 +33,7 @@ calc_fire_sensitivity <- function(water_supplies,
   # if using the categorical layer, classify here to use binary layer in iteration below
   if(whp_type == "cat") {
     ## classify raster
-    binary <- terra::ifel(whp_raster %in% 4:5, 1, 0)
+    binary <- terra::ifel(terra::`%in%`(whp_raster, 4:5), 1, 0)
   }
   
   
