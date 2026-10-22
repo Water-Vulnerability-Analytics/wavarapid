@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_temp_exposure.R
 \name{calc_temp_exposure}
 \alias{calc_temp_exposure}
-\title{Calculate Temperature Exposure Indicator (Standardized Version)}
+\title{Temperature exposure: projected change in annual mean air temperature}
 \usage{
 calc_temp_exposure(
   water_supplies,
@@ -18,32 +18,116 @@ calc_temp_exposure(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with water supply locations}
+\item{water_supplies}{sf object. The water supplies, with a
+\code{wsd_source_id} column, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Only their IDs
+are used, to pick rows from the processed files, so they must be the IDs
+the files were made with. Required.}
 
-\item{temp_data}{character, directory containing processed LOCA2/MWBM temperature files}
+\item{temp_data}{String. The folder of processed temperature parquet
+files from \code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}. If no file name matches the
+\code{hindcast} filter, every parquet file in the folder is used. Stops with
+an error if none overlap the periods. Default:
+\code{rapid/inputs/loca2_temperature_water_supplies} in the shared data
+folder,
+see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{hindcast}{logical, if TRUE uses hindcast climate data, if FALSE uses
-training/measured downscaled climate data}
+\item{hindcast}{Logical. Where the historical period comes from.
+\itemize{
+\item \code{TRUE}: each model's own historical run, so the change is measured
+within each model. Historical years after the historical run ends
+(2014) come from the same model's scenario run. Training and
+\code{livneh_unsplit} files are not read.
+\item \code{FALSE}: observed temperature from the Livneh or "lusu" files in
+\code{temp_data}, the same baseline for every model; the future comes from
+the scenario files. Model values before 2019 are dropped.
+}
 
-\item{historical}{Character vector of length 2 giving the start and end years
-(in \code{"YYYY"} format) that defines the "historical" period.}
+Default: \code{TRUE}.}
 
-\item{future}{Character vector of length 2 giving the start and end years
-(in \code{"YYYY"} format) that defines the "future" period.}
+\item{historical}{Character or numeric vector of 2 years, e.g.
+\code{c(1980, 2010)}. The first and last year of the historical period.
+Required.}
 
-\item{water_year}{T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.}
+\item{future}{Character or numeric vector of 2 years, e.g.
+\code{c(2035, 2065)}. The first and last year of the future period. Required.}
 
-\item{save}{logical, whether to save output}
+\item{water_year}{Logical. How months are grouped into years.
+\itemize{
+\item \code{TRUE}: water years, October to September, labelled by the year they
+end in (water year 2010 is October 2009 to September 2010).
+\item \code{FALSE}: calendar years.
+}
 
-\item{output_dir}{character, directory path for saving files}
+Default: \code{TRUE}.}
 
-\item{verbose}{logical, whether to show progress messages}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{temperature_exposure_<date>.csv}, named with today's date,
+to \code{output_dir}, creating the folder if needed. Stops with an error if
+\code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
+
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: shows a progress bar over the files and messages with the run
+time and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble with water supply ID, park info, and temperature exposure indicators
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit} and:
+\itemize{
+\item \code{raw_temperature_change_p10}, \verb{_p50}, \verb{_p90}: the change in mean
+annual temperature (degrees C) of the model run closest to that
+percentile;
+\item \code{raw_temp_models_showing_increase}: the percentage of model runs with
+warming;
+\item \verb{norm_*} and \verb{rank_*} versions of both from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}. More warming gets a higher score.
+}
 }
 \description{
-Calculates temperature exposure using processed LOCA2/MWBM temperature data.
-This follows the precipitation exposure helper structure, but uses annual mean
-temperature and raw temperature change in degrees C rather than percent change.
+Calculates the change in mean annual air temperature at each water supply
+between a historical and a future period, from LOCA2 monthly temperature.
+Monthly values are averaged over each site's grid cells and over the year.
+The daily minimum (\code{tasmin}) and maximum (\code{tasmax}) files of a model run
+are averaged together. For each model run (model, scenario and ensemble
+member) the change is the future mean minus the historical mean, in
+degrees C (not a percentage). Only files whose years (from the file name)
+overlap the two periods are read.
+
+The ensemble is then summarized per site: the runs closest to the 10th,
+50th and 90th percentiles of the change, and the percentage of runs that
+show warming.
+}
+\examples{
+\dontshow{if (interactive() && dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_temperature_water_supplies"))) withAutoprint(\{ # examplesIf}
+# Reads the processed temperature files for both periods (several GB),
+# so it takes several minutes even for one park
+ws <- wavacore::get_wsd(park = "ZION")
+temp_exp <- calc_temp_exposure(ws,
+                               historical = c(1980, 2010),
+                               future = c(2035, 2065))
+temp_exp
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_temp_sensitivity]{calc_temp_sensitivity()}} for the historical trend;
+\code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}, which makes the input files (\code{var = "tasmin_tavg"} and \code{"tasmax_tavg"});
+\code{\link[=calc_vulnerability_index]{calc_vulnerability_index()}}.
 }

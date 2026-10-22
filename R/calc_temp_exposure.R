@@ -1,25 +1,94 @@
-#' Calculate Temperature Exposure Indicator (Standardized Version)
+#' @title Temperature exposure: projected change in annual mean air temperature
 #'
-#' Calculates temperature exposure using processed LOCA2/MWBM temperature data.
-#' This follows the precipitation exposure helper structure, but uses annual mean
-#' temperature and raw temperature change in degrees C rather than percent change.
+#' @description
+#' Calculates the change in mean annual air temperature at each water supply
+#' between a historical and a future period, from LOCA2 monthly temperature.
+#' Monthly values are averaged over each site's grid cells and over the year.
+#' The daily minimum (`tasmin`) and maximum (`tasmax`) files of a model run
+#' are averaged together. For each model run (model, scenario and ensemble
+#' member) the change is the future mean minus the historical mean, in
+#' degrees C (not a percentage). Only files whose years (from the file name)
+#' overlap the two periods are read.
 #'
-#' @param water_supplies sf object with water supply locations
-#' @param temp_data character, directory containing processed LOCA2/MWBM temperature files
-#' @param hindcast logical, if TRUE uses hindcast climate data, if FALSE uses
-#'   training/measured downscaled climate data
-#' @param historical Character vector of length 2 giving the start and end years
-#'   (in `"YYYY"` format) that defines the "historical" period.
-#' @param future Character vector of length 2 giving the start and end years
-#'   (in `"YYYY"` format) that defines the "future" period.
-#' @param water_year T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.
-#' @param save logical, whether to save output
-#' @param output_dir character, directory path for saving files
-#' @param verbose logical, whether to show progress messages
+#' The ensemble is then summarized per site: the runs closest to the 10th,
+#' 50th and 90th percentiles of the change, and the percentage of runs that
+#' show warming.
 #'
-#' @return tibble with water supply ID, park info, and temperature exposure indicators
+#' @param water_supplies sf object. The water supplies, with a
+#'   `wsd_source_id` column, e.g. from [wavacore::get_wsd()]. Only their IDs
+#'   are used, to pick rows from the processed files, so they must be the IDs
+#'   the files were made with. Required.
+#' @param temp_data String. The folder of processed temperature parquet
+#'   files from [process_loca2_mwbm()]. If no file name matches the
+#'   `hindcast` filter, every parquet file in the folder is used. Stops with
+#'   an error if none overlap the periods. Default:
+#'   `rapid/inputs/loca2_temperature_water_supplies` in the shared data
+#'   folder,
+#'   see [wavacore::wava_data_path()].
+#' @param hindcast Logical. Where the historical period comes from.
+#'   * `TRUE`: each model's own historical run, so the change is measured
+#'     within each model. Historical years after the historical run ends
+#'     (2014) come from the same model's scenario run. Training and
+#'     `livneh_unsplit` files are not read.
+#'   * `FALSE`: observed temperature from the Livneh or "lusu" files in
+#'     `temp_data`, the same baseline for every model; the future comes from
+#'     the scenario files. Model values before 2019 are dropped.
 #'
+#'   Default: `TRUE`.
+#' @param historical Character or numeric vector of 2 years, e.g.
+#'   `c(1980, 2010)`. The first and last year of the historical period.
+#'   Required.
+#' @param future Character or numeric vector of 2 years, e.g.
+#'   `c(2035, 2065)`. The first and last year of the future period. Required.
+#' @param water_year Logical. How months are grouped into years.
+#'   * `TRUE`: water years, October to September, labelled by the year they
+#'     end in (water year 2010 is October 2009 to September 2010).
+#'   * `FALSE`: calendar years.
+#'
+#'   Default: `TRUE`.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `temperature_exposure_<date>.csv`, named with today's date,
+#'     to `output_dir`, creating the folder if needed. Stops with an error if
+#'     `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
+#'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: shows a progress bar over the files and messages with the run
+#'     time and the path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit` and:
+#'   * `raw_temperature_change_p10`, `_p50`, `_p90`: the change in mean
+#'     annual temperature (degrees C) of the model run closest to that
+#'     percentile;
+#'   * `raw_temp_models_showing_increase`: the percentage of model runs with
+#'     warming;
+#'   * `norm_*` and `rank_*` versions of both from
+#'     [add_standardized_indicators()]. More warming gets a higher score.
 #' @export
+#' @seealso [calc_temp_sensitivity()] for the historical trend;
+#'   [process_loca2_mwbm()], which makes the input files (`var =
+#'   "tasmin_tavg"` and `"tasmax_tavg"`);
+#'   [calc_vulnerability_index()].
+#' @examplesIf interactive() && dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_temperature_water_supplies"))
+#' # Reads the processed temperature files for both periods (several GB),
+#' # so it takes several minutes even for one park
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' temp_exp <- calc_temp_exposure(ws,
+#'                                historical = c(1980, 2010),
+#'                                future = c(2035, 2065))
+#' temp_exp
+
 calc_temp_exposure <- function(water_supplies,
                                temp_data = wavacore::wava_data_path("rapid", "inputs", "loca2_temperature_water_supplies/"),
                                hindcast = TRUE,

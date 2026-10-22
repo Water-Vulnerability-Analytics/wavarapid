@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_drought_sensitivity.R
 \name{calc_drought_sensitivity}
 \alias{calc_drought_sensitivity}
-\title{Calculate Historical Drought Sensitivity Indicator}
+\title{Drought sensitivity: historical drought trend, frequency and severity}
 \usage{
 calc_drought_sensitivity(
   water_supplies,
@@ -20,58 +20,119 @@ calc_drought_sensitivity(
 )
 }
 \arguments{
-\item{water_supplies}{An \code{sf} object containing water supply locations. Must
-include \code{wsd_source_id} and \code{park_unit}.}
+\item{water_supplies}{sf object. The water supplies, with \code{wsd_source_id}
+and \code{park_unit} columns, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Only their IDs
+are used, to pick rows from the files. Required.}
 
-\item{precip_data}{Character. Directory containing the processed historical
-precipitation parquet file. Defaults to
-\code{wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/")}.}
+\item{precip_data}{String. The folder with the processed training
+precipitation file,
+\verb{jay_alder_pr_MWBM_LOCA2_training_195001-201412.nc.parquet}; stops with
+an error if it isn't there. Default:
+\code{rapid/inputs/loca2_precipitation_water_supplies} in the shared data
+folder, see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{pet_data}{Character. Directory containing the processed historical PET
-parquet file. Defaults to
-\code{wava_data_path("rapid", "inputs", "loca2_pet_water_supplies/")}.}
+\item{pet_data}{String. The folder with the processed training PET file,
+\verb{jay_alder_pet_MWBM_LOCA2_training_195001-201412.nc.parquet}; stops with
+an error if it isn't there. The name is matched exactly, so on a
+case-sensitive file system a file named \code{Jay_Alder_pet_...} is not found.
+Default: \code{rapid/inputs/loca2_pet_water_supplies} in the shared data
+folder.}
 
-\item{spei_scale}{Positive integer. Accumulation scale in months passed to
-\code{SPEI::spei()}. Default is \code{12}.}
+\item{spei_scale}{Integer. The SPEI accumulation scale in months, passed
+to \code{\link[SPEI:spei]{SPEI::spei()}}. Default: \code{12}.}
 
-\item{spei_inf_cap}{Numeric. Absolute cap used to replace \code{Inf} and \code{-Inf}
-SPEI values. Default is \code{4}.}
+\item{spei_inf_cap}{Numeric. The absolute value that replaces \code{Inf} and
+\code{-Inf} SPEI values. Must be positive. Default: \code{4}.}
 
-\item{drought_threshold}{Numeric. SPEI threshold used to classify drought
-months. Default is \code{-1}, representing moderate-or-worse drought.}
+\item{drought_threshold}{Numeric. The SPEI value at or below which a month
+counts as a drought month. Default: \code{-1} (moderate drought or worse).}
 
-\item{historical}{Character vector of length 2 giving the historical period,
-e.g. \code{c("1980", "2010")}.}
+\item{historical}{Character or numeric vector of 2 years, e.g.
+\code{c(1980, 2010)}. The first and last year of the historical period. The
+training run covers 1950-2014. Required.}
 
-\item{water_year}{Logical. If \code{TRUE}, annual summaries use Oct-Sep water
-years. If \code{FALSE}, calendar years are used.}
+\item{water_year}{Logical. How months are grouped into years for the
+annual means and the trend.
+\itemize{
+\item \code{TRUE}: water years, October to September, labelled by the year they
+end in.
+\item \code{FALSE}: calendar years.
+}
 
-\item{save}{Logical. If \code{TRUE}, writes results to disk.}
+Default: \code{TRUE}.}
 
-\item{output_dir}{Character. Output directory when \code{save = TRUE}.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{drought_sensitivity_<date>.csv}, named with today's
+date, to \code{output_dir}, creating the folder if needed. Stops with an
+error if \code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{verbose}{Logical. If \code{TRUE}, prints progress messages.}
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints each step, the run time and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-A tibble with one row per water supply and historical drought
-sensitivity indicators.
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit} and:
+\itemize{
+\item \code{raw_slope_spei}: Sen's slope of annual mean SPEI (per year), with
+\code{n_years}, \code{mk_significant} (p < 0.05) and \code{trend_direction}
+(\code{"becoming wetter"}, \code{"becoming drier"} or \code{"no change"});
+\item \code{raw_avg_spei}, \code{raw_drought_month_frequency} (\%) and
+\code{raw_avg_drought_severity};
+\item \verb{raw_spei_*inf*} and \code{raw_spei_months}: counts and the percentage of
+capped \code{Inf} and \code{-Inf} months;
+\item \verb{norm_*} and \verb{rank_*} versions of the slope (inverted, so drying gets
+the highest score), the frequency and the severity, from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}.
+}
 }
 \description{
-Calculates historical drought sensitivity directly from the Jay Alder
-historical precipitation and PET training data. Monthly precipitation and PET
-are aggregated across grid cells for each water supply, joined by month, and
-used to calculate climatic water balance and SPEI. Annual mean SPEI is then
-used to estimate historical drought trends with Sen's slope and the
-Mann-Kendall test for each water supply.
-}
-\details{
-The function also summarizes the percentage of historical months classified
-as moderate-or-worse drought (\code{SPEI <= drought_threshold}) and mean drought
-severity. Drought severity is expressed as the positive magnitude of negative
-SPEI values, so larger values indicate more severe historical drought.
+Calculates historical drought indicators at each water supply from the Jay
+Alder MWBM training run. Monthly precipitation and PET are averaged over
+each site's grid cells and joined by month, and the climatic water balance
+(precipitation minus PET) is turned into SPEI with \code{\link[SPEI:spei]{SPEI::spei()}}, using
+the historical period as the reference. \code{Inf} and \code{-Inf} SPEI values are
+capped at \code{spei_inf_cap} and \code{-spei_inf_cap}. Sites need SPEI for at least
+90\% of the historical months.
 
-Infinite SPEI values are directionally meaningful but numerically unbounded.
-Therefore, \code{-Inf} values are capped at \code{-spei_inf_cap} and \code{Inf} values are
-capped at \code{spei_inf_cap} before calculating sensitivity indicators. Counts of
-capped values are retained as diagnostics.
+From the monthly SPEI it calculates:
+\itemize{
+\item the trend in annual mean SPEI: Sen's slope (\code{\link[trend:sens.slope]{trend::sens.slope()}}),
+tested with Mann-Kendall (\code{\link[trend:mk.test]{trend::mk.test()}}), for sites with at least 3
+years;
+\item drought frequency: the percentage of months with
+\code{SPEI <= drought_threshold};
+\item drought severity: the mean of \code{abs(SPEI)} over those months, so larger
+means more severe.
+}
+}
+\examples{
+\dontshow{if (file.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_pet_water_supplies", "jay_alder_pet_MWBM_LOCA2_training_195001-201412.nc.parquet"))) withAutoprint(\{ # examplesIf}
+ws <- wavacore::get_wsd(park = "ZION")
+drought_sen <- calc_drought_sensitivity(ws, historical = c(1980, 2010))
+drought_sen[, c("wsd_source_id", "raw_slope_spei", "trend_direction",
+                "raw_drought_month_frequency", "raw_avg_drought_severity")]
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_drought_exposure]{calc_drought_exposure()}} for the projected change;
+\code{\link[=calc_precip_sensitivity]{calc_precip_sensitivity()}}, which reads the same precipitation file.
 }

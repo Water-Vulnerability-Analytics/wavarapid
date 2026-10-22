@@ -1,43 +1,91 @@
-#' Calculate Sea Level Rise Inundation Exposure Indicator
+#' @title Sea level rise exposure: change in inundated area
 #'
-#' Calculates inundation exposure for buffered water supply polygons using NOAA
-#' Sea Level Rise Viewer inundation surfaces. For each polygon, the function
-#' extracts flooded cell counts and percent coverage under both a reference
-#' (current) and a projected SLR scenario, then computes absolute cell change,
-#' percentage point change, and whether the water supply centroid itself becomes
-#' inundated. Sites whose buffer overlaps a single inundation tile are processed
-#' in batch via exactextractr; sites spanning multiple tiles are mosaicked and
-#' processed individually.
+#' @description
+#' Measures how much of each coastal water supply's 4 km buffer is flooded
+#' under the NOAA Sea Level Rise Viewer surfaces, now (0 ft) and under the
+#' projected 2050 sea level rise picked by [process_inundation_data()]. For
+#' each buffer it counts the flooded raster cells in both scenarios and
+#' calculates the change in cells and in percentage points, and whether the
+#' water supply point itself becomes inundated. Buffers within one raster
+#' tile are processed together with exactextractr; buffers that span
+#' several tiles are mosaicked and processed one at a time.
 #'
-#' @param ws_scenarios sf object of ALL water supplies right-joined onto buffered
-#'   coastal SLR scenarios. Coastal rows have buffer polygon geometry and SLR
-#'   scenario columns (e.g. `inun_region`, `ref_file`, `proj_file`,
-#'   `buffer_km`); non-coastal rows have NA geometry and NA SLR columns. Must
-#'   include columns `wsd_source_id`, `park_unit`, `inun_region`,
-#'   `ref_file`, and `proj_file` (NAs acceptable for non-coastal rows).
-#' @param inundation_raster_data_dir character, path to inundation surface raster
-#'   state subdirectories
-#' @param coast_distances character path to coastal_site_geometry.csv
-#'   produced by `process_coastal_geometry()` (only `coast_dist_m` is used
-#'   here). Water supplies farther than 50 km from the
-#'   coast (already `NA`'d in this file) have every indicator column set to
-#'   `NA`, matching the convention in `calc_swi_exposure()`/`calc_storm_surge_exposure()`.
-#' @param save logical, whether to save output
-#' @param output_dir character, directory path for saving files
-#' @param verbose logical, whether to show progress messages
+#' Supplies with no scenario (no `proj_file`) and supplies more than 50 km
+#' from the coast (`coast_dist_m` is `NA` in `coast_distances`) get `NA` for
+#' every indicator. They are set to `NA` before standardizing, so they don't
+#' affect the scores of the coastal supplies.
 #'
-#' @return tibble with water supply ID, buffer size, SLR projection metadata,
-#'   raw/normalized/ranked coverage indicators for reference and projected
-#'   scenarios (`raw/norm/rank_coverage_pct_ref`, `raw/norm/rank_coverage_pct_proj`),
-#'   raw/normalized/ranked cell change and percentage point change
-#'   (`raw/norm/rank_cell_change`, `raw/norm/rank_pct_point_change`),
-#'   an `inun_change` category (`no_to_no`, `no_to_some`, `some_to_some`,
-#'   `some_to_no`), and `inun_centroid_change` (categorical: `no_to_no`,
-#'   `no_to_yes`, `yes_to_yes`, `yes_to_no` — whether the water supply centroid
-#'   point was inundated in the reference and/or projected scenario). All
-#'   indicator columns are `NA` for water supplies more than 50 km from the coast.
-
+#' @param ws_scenarios sf object. Every water supply, with the buffered
+#'   scenarios from [process_inundation_data()] joined on: coastal rows have
+#'   the buffer polygon and the scenario columns, other rows have empty
+#'   geometry and `NA`s (see the example). Needs `wsd_source_id`,
+#'   `park_unit`, `buffer_km`, `inun_proj_mm`, `inun_region`,
+#'   `inun_proj_closest_mm`, `depth_ft`, `depth_m`, `inun_surf_url`,
+#'   `proj_file`, `ref_file` and a geometry column named `geom` (as read
+#'   from `buff_ws_inun_regions.gpkg`). Required.
+#' @param inundation_raster_data_dir String. The folder with the downloaded
+#'   rasters, in one subfolder per state (`<state>/<file>`). Default:
+#'   `rapid/inputs/coast_comp/Extent_Rasters` in the shared data folder,
+#'   which is where [process_inundation_data()] downloads them, see
+#'   [wavacore::wava_data_path()].
+#' @param coast_distances String. Path to `coastal_site_geometry.csv` from
+#'   [process_coastal_geometry()]; only `coast_dist_m` is used. Stops with an
+#'   error if the file doesn't exist. Default:
+#'   `rapid/inputs/coast_comp/coastal_site_geometry.csv` in the shared data
+#'   folder.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `inundation_exposure_<date>.csv`, named with today's date, to
+#'     `output_dir`, creating the folder if needed. Stops with an error if
+#'     `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
+#'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: shows a progress bar over the raster files and messages with
+#'     the run time and the path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit`, `buffer_km`, `inun_proj_mm`, `inun_proj_closest_mm`,
+#'   `depth_ft` and:
+#'   * `raw_coverage_pct_ref` and `raw_coverage_pct_proj`: the percentage of
+#'     the buffer flooded now and under the projection;
+#'   * `raw_cell_change`: the change in flooded cells (projection minus now);
+#'   * `raw_pct_point_change`: the change in percentage points;
+#'   * `norm_*` and `rank_*` versions of those four, from
+#'     [add_standardized_indicators()];
+#'   * `inun_change`: `"no_to_no"`, `"no_to_some"`, `"some_to_some"` or
+#'     `"some_to_no"`, for the buffer;
+#'   * `inun_centroid_change`: `"no_to_no"`, `"no_to_yes"`, `"yes_to_yes"` or
+#'     `"yes_to_no"`, for the water supply point.
 #' @export
+#' @seealso [process_inundation_data()], which makes the scenarios and
+#'   downloads the rasters; [process_coastal_geometry()];
+#'   [calc_storm_surge_exposure()] and [calc_swi_exposure()], the other
+#'   coastal indicators.
+#' @examplesIf interactive() && file.exists(wavacore::wava_data_path("rapid", "inputs", "coast_comp", "buff_ws_inun_regions.gpkg"))
+#' # The scenarios, joined onto the supplies of one coastal park, as in the
+#' # rapid workflow
+#' ws <- wavacore::get_wsd(park = "BISC")
+#' scenarios <- sf::st_read(wavacore::wava_data_path("rapid", "inputs", "coast_comp",
+#'                                                   "buff_ws_inun_regions.gpkg"),
+#'                          quiet = TRUE)
+#' scenarios <- scenarios[!is.na(scenarios$proj_file), names(scenarios) != "park_unit"]
+#' ws_ids <- sf::st_drop_geometry(ws)[, c("wsd_source_id", "park_unit")]
+#' ws_scenarios <- dplyr::right_join(scenarios, ws_ids, by = "wsd_source_id")
+#'
+#' slr_exp <- calc_inundation_exposure(ws_scenarios)
+#' slr_exp[, c("wsd_source_id", "raw_coverage_pct_ref", "raw_coverage_pct_proj",
+#'             "inun_change", "inun_centroid_change")]
+
 calc_inundation_exposure <- function(ws_scenarios,
                                      inundation_raster_data_dir = wavacore::wava_data_path("rapid", "inputs", "coast_comp", "Extent_Rasters"),
                                      coast_distances = wavacore::wava_data_path("rapid", "inputs", "coast_comp", "coastal_site_geometry.csv"),

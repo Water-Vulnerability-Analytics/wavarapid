@@ -1,38 +1,83 @@
-#' Calculate visitation-based exposure indicators for park water supplies
+#' @title Visitation exposure: projected change in park visitation to 2050
 #'
-#' This function computes visitation-related exposure indicators for a set of park units
-#' based on annual and seasonal visitation trends. It uses NPS visitation data to estimate
-#' historical visitation patterns, trends, and projected changes through 2050.
+#' @description
+#' Projects annual recreation visits and the seasonality of visits for each
+#' park unit in `water_supplies` to 2050, from the NPS visitation statistics
+#' API through [wavacore::getUnitVisitation()], so it needs internet. A few
+#' WSD codes are looked up under a different visitation code (ANAC and NACE
+#' as NCPE, NAMA as NCPC, VALR as PERL); the output keeps the WSD code.
 #'
-#' For parks with timed entry systems, negative trends, or insufficient data (< 14 years of
-#' monthly records available), a minimum baseline growth rate is applied based on long-term
-#' NPS system-wide trends. This reflects that these parks are unlikely to experience
-#' unconstrained historical growth patterns or do not have enough information to support
-#' stable trend estimation.
+#' For each park:
+#' 1. A linear trend is fitted to annual visits from `start_year` to 2024.
+#'    The 2024 value of that trend is the starting point (`obs_2024`; it is
+#'    the fitted value, not the observed count).
+#' 2. The park uses a baseline slope, `baseline_growth_rate` times the 2024
+#'    value, instead of its own trend when any of these is true: the trend is
+#'    negative; the park has timed entry (ROMO and YOSE from 2020; GLAC, ACAD
+#'    and HALE from 2021; ZION, ARCH and SHEN from 2022); it has fewer than
+#'    `((2024 - start_year) - 1) * 12` monthly records (with the default
+#'    `start_year`, 33 years); or its trend is below the baseline slope.
+#' 3. Visits are projected to 2050 (not below 0), and the percent change from
+#'    2024 is the visitation indicator.
+#' 4. Seasonality is the coefficient of variation (CV) of the monthly shares
+#'    of each year's visits, leaving out 2020 and 2021. Its linear trend is
+#'    projected to 2050; for parks on the baseline slope the CV trend is
+#'    multiplied by `baseline_seasonality_shift`. The seasonality indicator is
+#'    `100 * (CV 2024 - CV 2050) / CV 2024`, so positive means visits spread
+#'    over more of the year.
 #'
-#' Results are merged with the provided `water_supplies` dataset for further analysis.
+#' Parks whose request or calculation fails are dropped without a message
+#' and get `NA`.
 #'
-#' @param water_supplies A data frame containing at least a `park_unit` column, representing
-#'   unique park identifiers for which visitation exposure indicators will be calculated.
-#' @param start_year Numeric. First year of visitation data to request.
-#' @param baseline_growth_rate Default growth rate to set to if actual growth
-#'  rate per park is either below it, negative, not enough data, or for parks with timed entry.
-#' @param baseline_seasonality_shift Numeric. A dampening factor (0-1) applied to the
-#'   coefficient of variation (CV) trend for parks using baseline growth adjustments.
-#'   For example, if 0.25, this means that the seasonality trend is reduced to 25% of the observed rate.
-#'   Lower values assume parks with constrained growth (timed entry, negative trends, or
-#'   insufficient data) will experience minimal changes in visitation seasonality patterns.
-#'   This is still a WIP!
-#' @param save Logical. If `TRUE`, results are saved to a file in `output_dir`.
-#'   Defaults to `FALSE`.
-#' @param output_dir Optional character string specifying the directory where results
-#'   will be saved if `save = TRUE`. Ignored otherwise.
-#' @param verbose Logical. If `TRUE`, progress messages are printed to the console.
-#'   Defaults to `TRUE`.
+#' @param water_supplies Data frame or sf object. The water supplies, with a
+#'   `park_unit` column, e.g. from [wavacore::get_wsd()]. One request is made
+#'   per park unit, and the results are joined back onto these rows.
+#'   Required.
+#' @param start_year Integer. The first year of visitation to request and
+#'   fit. It also sets the short-record test (see Description). Default:
+#'   `1990`.
+#' @param baseline_growth_rate Numeric. The yearly growth, as a fraction of
+#'   the 2024 value, used for parks that get the baseline slope. Default:
+#'   `0.0087` (0.87% a year, the long-term NPS system-wide trend).
+#' @param baseline_seasonality_shift Numeric from 0 to 1. How much of the
+#'   seasonality trend parks on the baseline slope keep.
+#'   * `1`: they keep their observed seasonality trend (no change).
+#'   * Less than 1, e.g. `0.25`: their seasonality trend is cut to that
+#'     fraction, assuming parks with limited growth see little change in
+#'     seasonality.
 #'
-#' @return
-#' A tibble combining the original `water_supplies` data with visitation exposure indicators.
+#'   Still being worked out. Default: `1`.
+#' @param save Logical. Not used yet: the function never writes a file,
+#'   whatever this is. Default: `FALSE`.
+#' @param output_dir String or `NULL`. Not used yet, as for `save`.
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints how many parks were calculated and which parks got the
+#'     baseline slope and why.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return `water_supplies` (with its class and columns) with these columns
+#'   joined on by `park_unit`: `pred_2050`, `obs_2024`, `peak_year`,
+#'   `raw_visitation_pct_change`, `raw_visitation_cv_change`,
+#'   `n_months_analyzed`, `time_range`, `timed_entry_year`,
+#'   `has_timed_entry`, `original_slope`, `projection_slope`,
+#'   `slope_adjustment` (`"none"`, `"baseline_insufficient_data"`,
+#'   `"baseline_negative"`, `"baseline_timed_entry"` or
+#'   `"trend_below_baseline"`), `baseline_slope`, `negative_trend`, and the
+#'   `norm_` and `rank_` versions of the two `raw_` columns from
+#'   [add_standardized_indicators()].
 #' @export
+#' @seealso [calc_visitation_sensitivity()] for the historical trend;
+#'   [wavacore::getUnitVisitation()], which downloads the visitation data.
+#' @examplesIf interactive()
+#' # Downloads visitation statistics from the NPS API, so it needs internet
+#' ws <- wavacore::get_wsd(park = c("ZION", "GRSA"))
+#' visitation_exp <- calc_visitation_exposure(ws)
+#' unique(sf::st_drop_geometry(visitation_exp)[, c("park_unit", "slope_adjustment",
+#'                                                 "raw_visitation_pct_change")])
+
 calc_visitation_exposure <- function(water_supplies,
                                      start_year = 1990,
                                      baseline_growth_rate = 0.0087,

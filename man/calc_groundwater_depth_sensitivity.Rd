@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_groundwater_depth_sensitivity.R
 \name{calc_groundwater_depth_sensitivity}
 \alias{calc_groundwater_depth_sensitivity}
-\title{Calculate Groundwater Depth Sensitivity Indicator}
+\title{Groundwater sensitivity: depth to water}
 \usage{
 calc_groundwater_depth_sensitivity(
   water_supplies,
@@ -13,49 +13,98 @@ calc_groundwater_depth_sensitivity(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with water supply locations, including
-\code{wsd_source_id}, \code{park_unit}, \code{park_name}, \code{source_type}, \code{well_depth}
-(recorded well depth in feet).}
+\item{water_supplies}{sf object. The water supplies, with
+\code{wsd_source_id}, \code{park_unit}, \code{park_name}, \code{source_type} and
+\code{well_depth} (feet) columns, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Stops with
+an error if \code{source_type} or \code{well_depth} is missing. Repeated
+\code{wsd_source_id}s are dropped. Required.}
 
-\item{groundwater_data}{character path to \code{wtd_all_sites.csv} (output of
-\code{process_groundwater_depth()}), or a data.frame with the same columns.}
+\item{groundwater_data}{String or data frame. The modeled water table
+depths, with \code{wsd_source_id} and \code{wtd_point_m} columns.
+\itemize{
+\item String: path to \code{wtd_all_sites.csv} from \code{\link[=process_groundwater_depth]{process_groundwater_depth()}},
+e.g. \code{rapid/inputs/groundwater_depth/wtd_all_sites.csv} in the shared
+data folder.
+\item Data frame: the same table, already read.
+}
 
-\item{save}{logical, whether to save output}
+Required.}
 
-\item{output_dir}{character, directory path for saving files}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{groundwater_depth_sensitivity_<date>.csv}, named with
+today's date, to \code{output_dir}, creating the folder if needed. Stops
+with an error if \code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{verbose}{logical, whether to show progress messages}
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints messages with the run time and the path of the saved
+file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble with water supply ID, park info, \code{raw_groundwater_depth_source}
-("well_depth", "modeled_wtd", or "surface_zero", indicating which
-source was used), and raw/norm/rank columns for \code{raw_groundwater_depth_m}
-(continuous depth, inverted) and \code{raw_groundwater_depth_bin} (DRASTIC-style
-bin score, not inverted)
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit}, \code{park_name}, \code{raw_groundwater_depth_m},
+\code{raw_groundwater_depth_source} (\code{"well_depth"}, \code{"modeled_wtd"} or
+\code{"surface_zero"}), \code{raw_groundwater_depth_bin}, and the \code{norm_} and
+\code{rank_} versions of the depth (inverted) and the bin score (not
+inverted) from \code{\link[=add_standardized_indicators]{add_standardized_indicators()}}.
 }
 \description{
-Calculates depth-to-water sensitivity for all water supplies. For
-groundwater/spring \code{source_type} supplies, depth-to-water is taken from the
-WSD's recorded \code{well_depth}, assumed to sit 20\% shallower than the well
-bottom (i.e. \code{well_depth * 0.8}), falling back to modeled water table depth
-(WTD) from \code{process_groundwater_depth()} (CONUS-wide RF WTD model) where
-\code{well_depth} is missing. All other (non-groundwater/spring) source types
-are hardcoded to a depth-to-water of 0. A shallower water table means higher
-sensitivity, so \code{invert = TRUE} is used when standardizing the raw
-(continuous) depth.
+Gives each water supply a depth to water, in meters:
+\itemize{
+\item groundwater and spring sources (\code{source_type} containing
+"groundwater" or "spring", lowercase): the WSD's recorded \code{well_depth}
+(feet) times 0.8, assuming the water sits 20\% above the well bottom,
+capped at 200 m; where there is no well depth, the modeled water table
+depth from \code{\link[=process_groundwater_depth]{process_groundwater_depth()}};
+\item every other source type: 0.
 }
-\details{
-The raw depth is also binned into a DRASTIC-style depth-to-water sensitivity
-score, using thresholds of 1.5/4.5/9.1/15.2/22.9/30.5 m (5/15/30/50/75/100 ft)
-mapped to scores of 1/.9/.7/.5/.3/.2/.1. Unlike the raw depth, the bin score
-is not inverted when standardized. A depth of 0 (non-groundwater/spring
-source types) naturally falls into the top bin (1) under these thresholds.
 
-Citation: Zenodo record 18504963,
-https://ngwa.onlinelibrary.wiley.com/doi/10.1111/gwat.13362
+A shallower water table means higher sensitivity, so the depth is
+inverted when standardized. The depth is also binned into a DRASTIC-style
+score: 0-1.5 m = 1, 1.5-4.5 m = 0.9, 4.5-9.1 m = 0.7, 9.1-15.2 m = 0.5,
+15.2-22.9 m = 0.3, 22.9-30.5 m = 0.2 and over 30.5 m = 0.1 (5, 15, 30, 50,
+75 and 100 ft). The bin score is not inverted. Sources with a depth of 0
+fall in the top bin.
 
-Citation: Aller, Linda, Jay H. Lehr, Rebecca Petty, and Truman Bennett.
-"DRASTIC: A Standardized System to Evaluate Groundwater Pollution Potential
-Using Hydrogeologic Setting." Journal Geological Society of India 29, no. 1
-(1987): 23-37. https://doi.org/10.17491/jgsi/1987/290112.
+Citations: Zenodo record 18504963,
+\url{https://ngwa.onlinelibrary.wiley.com/doi/10.1111/gwat.13362}; Aller, L.,
+Lehr, J.H., Petty, R., and Bennett, T. (1987). DRASTIC: A standardized
+system to evaluate groundwater pollution potential using hydrogeologic
+setting. Journal Geological Society of India, 29(1), 23-37,
+\url{https://doi.org/10.17491/jgsi/1987/290112}.
+}
+\examples{
+\dontshow{if (file.exists(wavacore::wava_data_path("rapid", "inputs", "groundwater_depth", "wtd_all_sites.csv"))) withAutoprint(\{ # examplesIf}
+ws <- wavacore::get_wsd(park = "ZION")
+gw_sen <- calc_groundwater_depth_sensitivity(
+  ws,
+  groundwater_data = wavacore::wava_data_path("rapid", "inputs", "groundwater_depth",
+                                              "wtd_all_sites.csv")
+)
+gw_sen[, c("wsd_source_id", "raw_groundwater_depth_m",
+           "raw_groundwater_depth_source", "raw_groundwater_depth_bin")]
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=process_groundwater_depth]{process_groundwater_depth()}}, which makes \code{wtd_all_sites.csv};
+\code{\link[=calc_vulnerability_index]{calc_vulnerability_index()}}, which uses the depth as
+\code{sen_source_type}.
 }

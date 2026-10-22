@@ -1,37 +1,88 @@
-#' Calculate Storm Surge Exposure Indicator
+#' @title Storm surge exposure: projected change in the 10-year storm surge
 #'
-#' Assigns each NPS water supply the worst-case-model 10-year return period
-#' storm surge change (future 2021-2050 minus reference 1985-2014, meters) from
-#' the nearest coastal station in the Muis et al. (2023) CMIP6 dataset,
-#' discounted by a joint coastal-proximity / low-elevation weight.
+#' @description
+#' Gives each coastal water supply the projected change in the 10-year
+#' return period storm surge at its nearest station in the Muis et al. (2023)
+#' CMIP6 dataset: future (2021-2050) minus reference (1985-2014), in meters
+#' and percent. At each station the worst-case model (the largest percent
+#' change) is used; CMCC-CM2-VHR4 is left out because its results are
+#' spurious.
 #'
-#' - CMCC-CM2-VHR4 is excluded from the worst-case model pool.
-#' - Water supplies whose nearest surge station is >50 km away, or that are
-#'   more than 50 km from the CUSP coastline, receive NA.
-#' - Distance/elevation weight: `sqrt((dist_weight^2 + elev_weight^2) / 2)`,
-#'   with `elev_weight` capped at the 10 m Low Elevation Coastal Zone
-#'   threshold (McGranahan et al. 2007).
+#' The change is then multiplied by a weight for how close the supply is to
+#' the coast and how low it is:
+#' `sqrt((dist_weight^2 + elev_weight^2) / 2)`, where `dist_weight` falls
+#' from 1 at the shoreline to 0 at 50 km and `elev_weight` from 1 at sea
+#' level to 0 at 10 m (the Low Elevation Coastal Zone, McGranahan et al.
+#' 2007).
 #'
-#' See `Explore/explore_updated_storm_surge.Rmd` for the reasoning behind the
-#' worst-case selection, the CMCC-CM2-VHR4 exclusion, and the weighting scheme.
+#' Supplies more than 50 km from the coast, or more than 50 km from the
+#' nearest station, get `NA`. See `Explore/explore_updated_storm_surge.Rmd`
+#' in `nps_water_vulnerability` for the reasoning behind the worst-case
+#' choice, the model exclusion and the weights.
 #'
 #' Source: Muis et al. (2023), "Global Projections of Storm Surges Using
 #' High-Resolution CMIP6 Climate Models", Earth's Future.
 #'
-#' @param water_supplies sf object with water supply point locations
-#' @param storm_surge_stations character path to the preprocessed storm
-#'   surge GeoPackage produced by `process_storm_surge_data()`, or an sf
-#'   object already loaded into memory
-#' @param coast_geometry character path to coastal_site_geometry.csv (columns
-#'   include `coast_dist_m` and `coast_elev_m`) produced by
-#'   `process_coastal_geometry()`
-#' @param save logical, whether to save output to a CSV file
-#' @param output_dir character, directory path for saving files
-#' @param verbose logical, whether to show progress messages
+#' @param water_supplies sf object. The water supplies, as points with
+#'   `wsd_source_id`, `park_unit` and `park_name` columns, e.g. from
+#'   [wavacore::get_wsd()]. Required.
+#' @param storm_surge_stations String or sf object. The stations from
+#'   [process_storm_surge_data()].
+#'   * String: path to `storm_surge_RP10_muis_2023.gpkg`, e.g. in
+#'     `rapid/inputs/storm_surge` in the shared data folder. Stops with an
+#'     error if the file doesn't exist.
+#'   * sf object: the stations, already read.
 #'
-#' @return tibble with raw and standardized storm surge exposure indicators
+#'   Required.
+#' @param coast_geometry String or data frame. The distance to the coast
+#'   and elevation of each supply (`coast_dist_m`, `coast_elev_m`), from
+#'   [process_coastal_geometry()], joined by `wsd_source_id`, `park_unit`
+#'   and `park_name`.
+#'   * String: path to `coastal_site_geometry.csv`. Stops with an error if
+#'     the file doesn't exist.
+#'   * Data frame: the same table, already read.
 #'
+#'   Default: `rapid/inputs/coast_comp/coastal_site_geometry.csv` in the
+#'   shared data folder, see [wavacore::wava_data_path()].
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `storm_surge_exposure_<date>.csv`, named with today's date, to
+#'     `output_dir`, creating the folder if needed. Stops with an error if
+#'     `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
+#'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints each step, the run time and the path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit`, `park_name`, `coast_elev_m` and:
+#'   * `raw_surge_change_max`: the weighted change in surge (meters);
+#'   * `raw_surge_pct_change_max`: the weighted percent change;
+#'   * `norm_*` and `rank_*` versions of both from
+#'     [add_standardized_indicators()]. A larger increase gets a higher score.
 #' @export
+#' @seealso [calc_storm_surge_sensitivity()] for the current surge level;
+#'   [process_storm_surge_data()] and [process_coastal_geometry()], which make
+#'   the inputs; [calc_inundation_exposure()] and [calc_swi_exposure()], the
+#'   other coastal indicators.
+#' @examplesIf file.exists(wavacore::wava_data_path("rapid", "inputs", "storm_surge", "storm_surge_RP10_muis_2023.gpkg"))
+#' ws <- wavacore::get_wsd(park = "BISC")
+#' surge_exp <- calc_storm_surge_exposure(
+#'   ws,
+#'   storm_surge_stations = wavacore::wava_data_path("rapid", "inputs", "storm_surge",
+#'                                                   "storm_surge_RP10_muis_2023.gpkg")
+#' )
+#' surge_exp
+
 calc_storm_surge_exposure <- function(water_supplies,
                                       storm_surge_stations,
                                       coast_geometry = wavacore::wava_data_path("rapid",

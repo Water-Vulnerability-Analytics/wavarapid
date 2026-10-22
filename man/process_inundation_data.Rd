@@ -2,7 +2,7 @@
 % Please edit documentation in R/process_inundation_data.R
 \name{process_inundation_data}
 \alias{process_inundation_data}
-\title{Process coastal inundation inputs for water-supply risk analysis}
+\title{Prepare the sea level rise inundation inputs}
 \usage{
 process_inundation_data(
   coast_dir_path = wavacore::wava_data_path("all", "coast_comp_data"),
@@ -12,39 +12,91 @@ process_inundation_data(
 )
 }
 \arguments{
-\item{coast_dir_path}{Character path to the coastal comparison data directory that contains
-ITF NetCDF inputs and NOAA SLRV URL list inputs, and where outputs will be written.
-Defaults to \code{wava_data_path("all", "coast_comp_data")}.}
+\item{coast_dir_path}{String. The coastal data folder. It must hold
+\code{interagency_report/Results/TR_gridded_projections.nc} and the
+\code{altered_water_supplies}, \code{interagency_report/generated_products} and
+\code{NOAA_SLRV_2022/inundation_data} folders, which receive the intermediate
+files. Default: \code{all/coast_comp_data} in the shared data folder, see
+\code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{water_supplies}{An \code{sf} object of point geometries representing water supply locations.
-Must include a \code{source_state} column (2-letter state code) used to group downloads/processing.}
+\item{water_supplies}{sf object. The water supplies, as points, e.g. from
+\code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. All columns are kept; \code{\link[=calc_inundation_exposure]{calc_inundation_exposure()}}
+needs \code{wsd_source_id} and \code{park_unit}. Required.}
 
-\item{save}{logical, whether to save the final output GeoPackage. Defaults to TRUE.
-Intermediate files (buffered water supplies, ITF raster, inundation region bboxes)
-are always written as they are required for the function to complete.}
+\item{save}{Logical. Whether to write the final table.
+\itemize{
+\item \code{TRUE}: writes \code{buff_ws_inun_regions.gpkg} to \code{output_dir}, replacing
+an existing file.
+\item \code{FALSE}: doesn't write it. The intermediate files and the downloaded
+rasters are written either way (see Details).
+}
 
-\item{output_dir}{Directory to save the datasets that will be used as inputs for the
-calculation of inundation exposure.}
+Default: \code{TRUE}.}
+
+\item{output_dir}{String. The folder for \code{buff_ws_inun_regions.gpkg} and
+the downloaded rasters, which go in \verb{<output_dir>/Extent_Rasters/<state>}.
+Used even when \code{save = FALSE}, so it can't be \code{NULL}. Default:
+\code{rapid/inputs/coast_comp} in the shared data folder.}
+}
+\value{
+An sf object of 4 km buffer polygons (CRS 4326), one row per water
+supply and matching inundation region, for supplies that have both a
+reference and a scenario raster. It has the \code{water_supplies} columns plus
+\code{ID}, \code{buffer_km}, \code{inun_proj_mm} (ITF projection, mm), \code{inun_region},
+\code{inun_proj_closest_mm} (the NOAA depth used, mm), \code{depth_ft}, \code{depth_m},
+\code{inun_surf_url}, \code{proj_file} (scenario raster) and \code{ref_file} (0 ft
+raster).
 }
 \description{
-Buffers water supply point locations (4 km), extracts Interagency Task
-Force (ITF) sea-level-rise projections for 2050 (83rd percentile), programmatically builds a master
-NOAA Sea Level Rise Viewer (SLRV) inundation-extent URL table by fetching per-state URL lists,
-determines the relevant NOAA inundation region per water supply using a two-step process:
-first a same-state spatial join to keep all candidate regions, then distance-based
-disambiguation for sites with multiple overlapping candidates — selects
-the nearest available NOAA inundation extent depth that matches/exceeds the ITF projection,
-downloads the needed NOAA extent rasters, and writes intermediate and final geopackages/rasters.
-Uses ITF 83rd percentile projections for 2050. Excludes AK, HI, Guam, CNMI, USVI.
-Matches ITF projections to nearest available NOAA inundation depths.
-Downloads reference (0 ft SLR) and scenario rasters as needed.
+Builds the inputs for \code{\link[=calc_inundation_exposure]{calc_inundation_exposure()}}:
+\enumerate{
+\item Buffers each water supply by 4 km.
+\item Reads the Interagency Task Force (ITF) sea level rise projections for
+2050 (Intermediate-High scenario, 83rd percentile) at each supply.
+\item Downloads the per-state URL lists of the NOAA Sea Level Rise Viewer
+(SLRV) inundation rasters and combines them. AK, HI and the territories
+are left out.
+\item Downloads the 0 ft (reference) raster of every inundation region,
+finds the regions each buffer overlaps, and picks the smallest NOAA
+depth that is at least the ITF projection.
+\item Downloads the scenario rasters that are needed.
 }
-\details{
+
+It needs internet and downloads several GB.
+
 Data sources:
 \itemize{
-\item ITF projections: https://zenodo.org/records/5951626
-\item Technical report: https://earth.gov/sealevel/us/internal_resources/756/noaa-nos-techrpt01-global-regional-SLR-scenarios-US.pdf
-\item NOAA SLRV data: https://coast.noaa.gov/slrdata/
-\item Interactive tool: https://sealevel.nasa.gov/task-force-scenario-tool
+\item ITF projections: \url{https://zenodo.org/records/5951626}
+\item Technical report:
+\url{https://earth.gov/sealevel/us/internal_resources/756/noaa-nos-techrpt01-global-regional-SLR-scenarios-US.pdf}
+\item NOAA SLRV data: \url{https://coast.noaa.gov/slrdata/}
+\item Interactive tool: \url{https://sealevel.nasa.gov/task-force-scenario-tool}
 }
+}
+\details{
+Whatever \code{save} is, the function always writes these files, replacing
+existing ones:
+\itemize{
+\item in \code{coast_dir_path}: \code{altered_water_supplies/buff_ws.gpkg},
+\code{altered_water_supplies/buff_ws_itf_slr_proj.gpkg},
+\code{interagency_report/generated_products/itf_slr_projections_2050_83rd.tif},
+\code{NOAA_SLRV_2022/ALL_extent_raster_URLlist.txt} and \code{.csv}, and
+\code{NOAA_SLRV_2022/inundation_data/inun_region_bboxs.gpkg};
+\item in \code{output_dir}: the \code{Extent_Rasters} folder, which is deleted first and
+then downloaded again.
+}
+}
+\examples{
+\dontrun{
+# Not run: downloads several GB from NOAA, overwrites the intermediate
+# files in coast_dir_path, and deletes and re-downloads
+# output_dir/Extent_Rasters. Point both folders at a copy to try it.
+ws <- wavacore::get_wsd(rapid = TRUE)
+inundation_inputs <- process_inundation_data(water_supplies = ws, save = TRUE)
+}
+}
+\seealso{
+\code{\link[=calc_inundation_exposure]{calc_inundation_exposure()}}, which uses the result and the
+downloaded rasters; \code{\link[=process_coastal_geometry]{process_coastal_geometry()}} for the
+distance-to-coast table it also needs.
 }

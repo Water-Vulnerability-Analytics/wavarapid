@@ -2,7 +2,7 @@
 % Please edit documentation in R/process_swi_data.R
 \name{process_swi_data}
 \alias{process_swi_data}
-\title{Process Adams et al. 2024 Saltwater Intrusion Dataset}
+\title{Prepare the saltwater intrusion points (Adams et al. 2024)}
 \usage{
 process_swi_data(
   data_path = wavacore::wava_data_path("all", "coast_comp_data", "adams_swi_2024",
@@ -12,31 +12,64 @@ process_swi_data(
 )
 }
 \arguments{
-\item{data_path}{character, path to output_data.txt from the Adams et al. 2024 dataset.
-Defaults to \code{wava_data_path("all", "coast_comp_data", "adams_swi_2024", "data", "output_data.txt")}.}
+\item{data_path}{String. Path to \code{output_data.txt} (space-separated, with
+\code{WatershedID}, \code{lat}, \code{lon} and \code{Case_C} columns). Stops with an error if
+the file doesn't exist. Default: \code{output_data.txt} in
+\code{all/coast_comp_data/adams_swi_2024/data} in the shared data folder, see
+\code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{save}{logical, whether to save output GeoPackage. Defaults to TRUE.}
+\item{save}{Logical. Whether to write the points to a GeoPackage.
+\itemize{
+\item \code{TRUE}: writes \code{swi_points.gpkg} to \code{output_dir}, creating the folder
+if needed and replacing an existing file. Stops with an error if
+\code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{output_dir}{character, directory where gpkg file is written.
-Defaults to \code{wava_data_path("rapid", "inputs", "swi")}.}
+Default: \code{TRUE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for \code{swi_points.gpkg}.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{rapid/inputs/swi} in the shared data folder, which is where
+\code{\link[=calc_swi_exposure]{calc_swi_exposure()}} looks for it.}
+}
+\value{
+An sf object of points (CRS 4326), one row per saltwater intrusion
+point, with columns \code{watershed_id}, \code{lat}, \code{lon} and \code{Case_C} (meters).
 }
 \description{
-Reads output_data.txt from the Adams et al. 2024 (GRL) dataset, filters to
-CONUS extent, and saves one output:
-\enumerate{
-\item \code{swi_points.gpkg} — raw SWI estimation points with Case_C (meters)
-}
-}
-\details{
-Case_C = combined recharge-change + sea-level-rise driven inland migration
-of the saltwater-freshwater interface projected to 2100, in meters.
+Reads \code{output_data.txt} from the Adams et al. (2024) saltwater intrusion
+dataset, keeps the points inside a box around the contiguous US
+(longitude -125 to -66, latitude 24 to 50), and returns them as sf points.
+\code{\link[=calc_swi_exposure]{calc_swi_exposure()}} uses the result.
 
-Note: The published SWI point locations originate from a legacy data pipeline
-(Sawyer/Zhou et al.) and do not have a one-to-one match with any available
-HydroSHEDS watershed shapefile version.
+\code{Case_C} is the inland migration of the saltwater-freshwater interface
+projected to 2100, in meters, from recharge change and sea level rise
+combined. Positive values mean the interface moves inland.
 
-Citation: Adams, K.H.; J.T. Reager; B. Buzzanga; C. David; A. Sawyer;
-B. Hamlington, 2024, Climate-induced saltwater intrusion in 2100:
-recharge-driven severity, sea level-driven prevalence, Geophysical
-Research Letters.
+The point locations come from an older data pipeline (Sawyer/Zhou et al.)
+and don't match any available HydroSHEDS watershed shapefile one to one.
+
+Citation: Adams, K.H., Reager, J.T., Buzzanga, B., David, C., Sawyer, A.,
+and Hamlington, B. (2024). Climate-induced saltwater intrusion in 2100:
+recharge-driven severity, sea level-driven prevalence. Geophysical Research
+Letters.
+}
+\examples{
+\dontshow{if (file.exists(wavacore::wava_data_path("all", "coast_comp_data", "adams_swi_2024", "data", "output_data.txt"))) withAutoprint(\{ # examplesIf}
+# Read the points without writing the GeoPackage
+swi <- process_swi_data(save = FALSE)
+nrow(swi)
+summary(swi$Case_C)
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_swi_exposure]{calc_swi_exposure()}}, which assigns these values to water
+supplies; \code{\link[=process_coastal_geometry]{process_coastal_geometry()}}, which makes the distance-to-coast
+table that exposure function also needs.
 }

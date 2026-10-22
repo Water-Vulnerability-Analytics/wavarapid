@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_fire_sensitivity.R
 \name{calc_fire_sensitivity}
 \alias{calc_fire_sensitivity}
-\title{Calculate Fire Sensitivity Indicator}
+\title{Fire sensitivity: current wildfire hazard potential}
 \usage{
 calc_fire_sensitivity(
   water_supplies,
@@ -14,23 +14,85 @@ calc_fire_sensitivity(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with water supply locations}
+\item{water_supplies}{sf object. The water supply areas, as polygons with
+\code{wsd_source_id}, \code{park_unit} and \code{park_name} columns, e.g. points from
+\code{\link[wavacore:get_wsd]{wavacore::get_wsd()}} buffered with \code{\link[sf:st_buffer]{sf::st_buffer()}}. Required.}
 
-\item{whp_raster}{file path to wildfire hazard potential raster}
+\item{whp_raster}{String. Path to the WHP raster: the continuous raster
+for \code{whp_type = "raw"}, or the classified one (e.g.
+\code{all/usfs_fire/whp2023_GeoTIF/whp2023_cls_conus.tif} in the shared data
+folder) for \code{whp_type = "cat"}. Required.}
 
-\item{whp_type}{either "raw" for the raw continuous raster or "cat" for the categorized raster}
+\item{whp_type}{String. Which raster \code{whp_raster} is, and so what is
+calculated. Must be one of:
+\itemize{
+\item \code{"raw"}: the continuous raster. The result is the area-weighted mean
+WHP inside each polygon.
+\item \code{"cat"}: the classified raster. The result is the percentage of each
+polygon's area in the High or Very High classes (4 and 5).
+}
 
-\item{save}{logical, whether to save output}
+Either way the result is in \code{raw_wildfire_hazard_mean}. Required.}
 
-\item{output_dir}{character, directory path for saving files}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{fire_sensitivity_<date>.csv}, named with today's date,
+to \code{output_dir}, creating the folder if needed. Stops with an error if
+\code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{verbose}{logical, whether to show progress messages}
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: shows a progress bar over the water supplies and messages with
+the run time and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble with water supply ID, park info, and fire sensitivity indicators
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit}, \code{park_name}, \code{raw_wildfire_hazard_mean} (mean WHP, or \% of
+area in High or Very High, see \code{whp_type}), and its \code{norm_} and \code{rank_}
+versions from \code{\link[=add_standardized_indicators]{add_standardized_indicators()}}.
 }
 \description{
-Calculates fire sensitivity using Wildfire Hazard Potential (WHP) data
-from Dillon et al. 2023. Computes area-weighted mean WHP within water
-supply areas.
+Summarizes the Wildfire Hazard Potential (WHP, Dillon et al. 2023) inside
+each water supply area. Use buffered water supplies (the rapid workflow
+uses 4 km buffers): the value is computed over each polygon. If a
+\code{wsd_source_id} has several polygons, their values are averaged.
+}
+\examples{
+\dontshow{if (file.exists(wavacore::wava_data_path("all", "usfs_fire", "whp2023_GeoTIF", "whp2023_cls_conus.tif"))) withAutoprint(\{ # examplesIf}
+# 4 km buffers around the water supplies, as in the rapid workflow
+ws <- wavacore::get_wsd(park = "ZION")
+ws_buffer <- sf::st_buffer(sf::st_transform(ws, 32616), dist = 4000)
+fire_sen <- calc_fire_sensitivity(
+  ws_buffer,
+  whp_raster = wavacore::wava_data_path("all", "usfs_fire", "whp2023_GeoTIF",
+                                        "whp2023_cls_conus.tif"),
+  whp_type = "cat"
+)
+fire_sen
+\dontshow{\}) # examplesIf}
+}
+\references{
+Dillon, G.K. et al. (2023). Wildfire Hazard Potential for the United
+States, version 2023. USDA Forest Service Research Data Archive.
+}
+\seealso{
+\code{\link[=calc_fire_exposure]{calc_fire_exposure()}} for the projected change in fire
+probability; \code{\link[=calc_vulnerability_index]{calc_vulnerability_index()}}.
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_wta_sensitivity.R
 \name{calc_wta_sensitivity}
 \alias{calc_wta_sensitivity}
-\title{Calculate historical Withdrawal-to-Availability (WTA) sensitivity}
+\title{WTA sensitivity: historical watershed water stress}
 \usage{
 calc_wta_sensitivity(
   water_supplies,
@@ -17,25 +17,86 @@ calc_wta_sensitivity(
 )
 }
 \arguments{
-\item{water_supplies}{sf points with wsd_source_id, park_unit, park_name.}
+\item{water_supplies}{sf object. The water supplies, as points with
+\code{wsd_source_id}, \code{park_unit} and \code{park_name} columns, e.g. from
+\code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Required.}
 
-\item{data_dir}{Folder with wta_ratios_2000_2020.csv.}
+\item{data_dir}{String. The folder with \code{wta_ratios_2000_2020.csv}.
+Default: \verb{Latest county-level data/water_demand_projections} in the
+shared data folder, see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{watersheds}{sf polygons, or a WBD geodatabase path.}
+\item{watersheds}{String or sf object. The watershed polygons, with a
+\verb{huc<huc_level>} column (e.g. \code{huc8}).
+\itemize{
+\item String: path to a WBD geodatabase; the \verb{WBDHU<huc_level>} layer is
+read.
+\item sf object: the polygons, already read.
+}
 
-\item{huc_level}{HUC width: 2, 4, 6, or 8 (default).}
+Default: \code{all/WBD_National_GDB.gdb} in the shared data folder.}
 
-\item{max_watershed_distance_km}{Nearest-watershed limit for points outside.}
+\item{huc_level}{Integer. The watershed size: \code{2}, \code{4}, \code{6} or \code{8} (HUC2
+to HUC8). Picks both the WTA rows and the watershed layer. Default:
+\code{8L}.}
 
-\item{save, output_dir}{Save wta_sensitivity_hucNN_YYYY-MM-DD.csv to output_dir.}
+\item{max_watershed_distance_km}{Numeric. How far, in km, a supply outside
+every watershed can be from the nearest one and still use it
+(\code{watershed_match_method = "nearest"}). Supplies farther away get \code{NA}
+and \code{data_status = "unmatched_watershed"}. Default: \code{5}.}
 
-\item{verbose}{Report coverage.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{wta_sensitivity_huc<NN>_<date>.csv} (e.g.
+\verb{wta_sensitivity_huc08_2026-10-21.csv}) to \code{output_dir}. The folder
+must already exist; \code{output_dir} can't be \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
+
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file when
+\code{save = TRUE}; ignored otherwise. Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print messages.
+\itemize{
+\item \code{TRUE}: prints how many supplies got a historical WTA, and the path of
+the saved file.
+\item \code{FALSE}: prints nothing.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-Tibble with one row per supply.
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit}, \code{park_name}, the watershed (\code{huc}, \code{watershed_match_method},
+\code{watershed_distance_km}), \code{raw_wta} (the 2000-2020 ratio), \code{data_status}
+(\code{"ok"}, \code{"unmatched_watershed"} or \code{"missing_historical_ratio"}), the
+\code{norm_wta} and \code{rank_wta} columns from \code{\link[=add_standardized_indicators]{add_standardized_indicators()}},
+and \code{aggregation}, \code{historical_period} and \code{wta_units}.
 }
 \description{
-The 2000-2020 watershed WTA ratio for each water supply. WTA is a
-dimensionless ratio, so it is not divided by area. Higher values mean more
-historical water stress. norm_/rank_ columns are across supplies.
+Gives each water supply the 2000-2020 withdrawal-to-availability ratio
+(WTA) of its watershed, from the Blumberg and Warziniack WTA table. WTA is
+withdrawals divided by modeled runoff; higher values mean more water
+stress. It has no units, so it is not divided by area.
+
+Each water supply gets the watershed it is in (the lowest HUC code when it
+sits on a shared boundary), or the nearest one within
+\code{max_watershed_distance_km}. The \code{norm_} and \code{rank_} columns are relative
+to the water supplies passed in.
+}
+\examples{
+\dontshow{if (interactive() && dir.exists(wavacore::wava_data_path("all", "WBD_National_GDB.gdb"))) withAutoprint(\{ # examplesIf}
+# Reads the national HUC8 layer of the WBD geodatabase, so it takes a few
+# minutes. Read it once and pass it in to reuse it.
+huc8 <- sf::st_read(wavacore::wava_data_path("all", "WBD_National_GDB.gdb"),
+                    layer = "WBDHU8", quiet = TRUE)
+ws <- wavacore::get_wsd(park = c("ZION", "ROMO"))
+wta_sen <- calc_wta_sensitivity(ws, watersheds = huc8)
+wta_sen[, c("wsd_source_id", "huc", "raw_wta", "data_status")]
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_wta_exposure]{calc_wta_exposure()}} for the projected change;
+\code{\link[=calc_nearby_use_sensitivity]{calc_nearby_use_sensitivity()}} for county withdrawals.
 }

@@ -1,34 +1,95 @@
-#' Calculate nearby-use exposure from county demand projections
+#' @title Nearby use exposure: projected change in county water withdrawals
 #'
-#' Compares 2040-2070 with 2000-2020 county withdrawals (public supply + crop
-#' irrigation + thermoelectric, in MGD) from Blumberg and Warziniack. Each
-#' model/scenario pair is one ensemble member; ssp126 is excluded. For p10/p50/
-#' p90, reports the actual member nearest the percentile of absolute change.
+#' @description
+#' Compares county water withdrawals in 2040-2070 with 2000-2020 (public
+#' supply, crop irrigation and thermoelectric, in million gallons per day,
+#' MGD), from the Blumberg and Warziniack county demand projections. Each
+#' climate model and emission scenario pair is one ensemble member; ssp126 is
+#' left out.
 #'
-#' - Absolute change: (future - historical) / county area, in MGD/km2.
-#' - Percent change: 100 * (future - historical) / historical MGD.
-#' - A missing month, or a power plant expected in that period but not
-#'   reported, makes a county total NA. Plants retired out of the projections
-#'   are not expected in the future period.
+#' Each water supply gets the 2020 TIGER/Line county it is in (downloaded
+#' with [tigris::counties()], so it needs internet), or the nearest county
+#' within `max_county_distance_km`. For each county and member, the monthly
+#' withdrawals in `months` are averaged, weighted by days, and compared with
+#' the historical average:
+#' * absolute change: (future - historical) / county land area, MGD per km2;
+#' * percent change: 100 * (future - historical) / historical.
 #'
-#' Supplies use the 2020 TIGER/Line county they fall in, or the nearest county
-#' within max_county_distance_km. norm_/rank_ columns are across supplies.
+#' For the 10th, 50th and 90th percentiles of the absolute change, the
+#' member closest to each is reported. A missing month, or a power plant
+#' that should report in that period but doesn't, makes a county total `NA`.
+#' Plants retired in the projections (no withdrawals in the future file) are
+#' not expected in the future period. Gaps stay `NA` rather than being read
+#' as zero use. The `norm_` and `rank_` columns are relative to the water
+#' supplies passed in.
 #'
-#' @param water_supplies sf points with wsd_source_id, park_unit, park_name.
-#' @param data_dir Folder with the water_demand_projections CSVs.
-#' @param save,output_dir Save nearby_use_exposure_YYYY-MM-DD.csv to output_dir.
-#' @param verbose Report the saved filename.
-#' @param months Calendar months to average (default all 12).
-#' @param emission_scenarios,climate_models Optional ensemble subsets.
-#' @param max_county_distance_km Nearest-county limit for points outside counties.
-#' @return Tibble with one row per supply. Results are NA where data_status is
-#'   not "ok": no county within max_county_distance_km (unmatched_county), the
-#'   county is absent from the historical or future file (missing_*_county), a
-#'   month or expected plant is unreported (incomplete_*_data), or no ensemble
-#'   member is complete (no_complete_model_members). Percent change is also NA
-#'   when historical withdrawal is zero (zero_historical_withdrawal). Gaps are
-#'   left NA rather than treated as zero use.
+#' @param water_supplies sf object. The water supplies, as points with
+#'   `wsd_source_id`, `park_unit` and `park_name` columns, e.g. from
+#'   [wavacore::get_wsd()]. Required.
+#' @param data_dir String. The folder with `pub_irr_monthly_avg_2000_2020.csv`,
+#'   `pub_irr_monthly_avg_2040_2070.csv`, `tep_monthly_avg_2000_2020.csv` and
+#'   `tep_monthly_avg_2040_2070.csv`. Default:
+#'   `Latest county-level data/water_demand_projections` in the shared data
+#'   folder, see [wavacore::wava_data_path()].
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `nearby_use_exposure_<date>.csv`, named with today's
+#'     date, to `output_dir`. The folder must already exist; `output_dir`
+#'     can't be `NULL`.
+#'   * `FALSE`: writes nothing.
+#'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file when
+#'   `save = TRUE`; ignored otherwise. Default: `NULL`.
+#' @param verbose Logical. Whether to print the path of the saved file.
+#'   * `TRUE`: prints it when `save = TRUE`.
+#'   * `FALSE`: prints nothing.
+#'
+#'   Default: `TRUE`.
+#' @param months Integer vector. The calendar months (1-12) to average, e.g.
+#'   `6:8` for summer. Default: `1:12`.
+#' @param emission_scenarios Character vector or `NULL`. The emission
+#'   scenarios to use.
+#'   * A character vector, e.g. `"ssp245"`: keeps only those members.
+#'   * `NULL`: keeps every scenario except ssp126.
+#'
+#'   Default: `NULL`.
+#' @param climate_models Character vector or `NULL`. The climate models to
+#'   use, in the same way as `emission_scenarios`. Default: `NULL` (all).
+#' @param max_county_distance_km Numeric. How far, in km, a supply outside
+#'   every county can be from the nearest county and still use it. Supplies
+#'   farther away get `NA` and `data_status = "unmatched_county"`. Default:
+#'   `5`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit`, `park_name`, the county (`fips`, `county_area_km2`,
+#'   `county_distance_km`, `county_source`) and:
+#'   * `raw_use_change_p10`, `_p50`, `_p90`: the percent change of the member
+#'     closest to that percentile of absolute change;
+#'   * `raw_absolute_use_change_p10`, `_p50`, `_p90`: that member's absolute
+#'     change (MGD per km2), and `future_withdrawal_mgd_p10`, `_p50`, `_p90`;
+#'   * `raw_models_showing_increase_pct`: the percentage of members with an
+#'     increase;
+#'   * `historic_withdrawal_mgd` and coverage counts (`n_valid_models`,
+#'     `n_model_members`, `missing_future_plant_records`, and the numbers of
+#'     public and complete months in each period);
+#'   * `data_status`: `"ok"`, `"partial_ensemble"`, `"unmatched_county"`,
+#'     `"missing_historical_county"`, `"missing_future_county"`,
+#'     `"incomplete_historical_data"`, `"incomplete_future_data"`,
+#'     `"no_complete_model_members"` or `"zero_historical_withdrawal"` (the
+#'     percent change is `NA`);
+#'   * `norm_*` and `rank_*` versions of every `raw_` column from
+#'     [add_standardized_indicators()].
 #' @export
+#' @seealso [calc_nearby_use_sensitivity()] for historical use;
+#'   [calc_wta_exposure()] for the change in watershed water stress from the
+#'   same projections.
+#' @examplesIf interactive() && dir.exists(wavacore::wava_data_path("Latest county-level data", "water_demand_projections"))
+#' # Downloads the county boundaries and reads about 140 MB of projections,
+#' # so it needs internet and takes a few minutes
+#' ws <- wavacore::get_wsd(park = c("ZION", "ROMO"))
+#' use_exp <- calc_nearby_use_exposure(ws)
+#' use_exp[, c("wsd_source_id", "fips", "raw_use_change_p90", "data_status")]
+
 calc_nearby_use_exposure <- function(water_supplies,
                                      data_dir = wavacore::wava_data_path("Latest county-level data", "water_demand_projections"),
                                      save = FALSE,

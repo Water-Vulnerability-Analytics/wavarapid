@@ -1,40 +1,73 @@
-#' Process Coastal Geometry
+#' @title Distance to the coast and elevation of each water supply
 #'
-#' Combines the raw NOAA CUSP shoreline tiles into a single shoreline layer,
-#' then computes distance to the nearest CUSP shoreline feature for each NPS
-#' water supply. Water supplies farther than `max_coast_dist_m` (50 km) from the
-#' coast receive `coast_dist_m = NA` and are dropped from the elevation
-#' query entirely. This means those elevations also receive `coast_elev_m = NA`. 
-#' Any downstream function that computes a weight from `coast_dist_m` and/or 
-#' `coast_elev_m` (e.g. `calc_storm_surge_exposure()`, `calc_storm_surge_sensitivity()`,
-#' `calc_swi_exposure()`, `calc_inundation_exposure()`) will therefore also
-#' return NA for these non-coastal water supplies.
+#' @description
+#' Combines the NOAA CUSP shoreline tiles into one shoreline layer and finds
+#' the distance from each water supply to the nearest shoreline feature. For
+#' supplies within `max_coast_dist_m` of the coast it then gets the elevation
+#' from the USGS Elevation Point Query Service (EPQS), through
+#' [elevatr::get_elev_point()], so it needs internet.
 #'
-#' Elevation for the remaining coastal supplies is queried point-by-point
-#' from the USGS Elevation Point Query Service (EPQS) via
-#' `elevatr::get_elev_point()`.
+#' Supplies farther than `max_coast_dist_m` get `NA` for both distance and
+#' elevation. The coastal indicators that read this table
+#' ([calc_storm_surge_exposure()], [calc_storm_surge_sensitivity()],
+#' [calc_swi_exposure()] and [calc_inundation_exposure()]) give those supplies
+#' `NA`.
 #'
-#' When saved, writes coastal_site_geometry.csv (to `output_dir`) with
-#' distance + elevation, and cusp_shorelines.gpkg (the combined shoreline
-#' layer, cached alongside the raw tiles in `cusp_dir_path`).
+#' @param water_supplies sf object. The water supplies, as points with
+#'   `wsd_source_id`, `park_unit` and `park_name` columns, e.g. from
+#'   [wavacore::get_wsd()]. Stops with an error if a column is missing.
+#'   Required.
+#' @param cusp_dir_path String. The folder with the CUSP tile subfolders;
+#'   every `.shp` file below it is read. Stops with an error if the folder
+#'   doesn't exist or has no shapefiles. With `save = TRUE`, the combined
+#'   shoreline is also written here. Default: `all/coast_comp_data/NOAA_CUSP`
+#'   in the shared data folder, see [wavacore::wava_data_path()].
+#' @param ncpu Integer. The number of parallel workers for the elevation
+#'   queries. Default: `6`.
+#' @param max_coast_dist_m Numeric. The largest distance from the coast, in
+#'   meters, at which a supply counts as coastal.
+#'   * Supplies within it get `coast_dist_m` and an elevation.
+#'   * Supplies beyond it get `NA` for both and are not sent to the elevation
+#'     service.
 #'
-#' @param water_supplies sf object with water supply point locations
-#' @param cusp_dir_path character, path to directory containing CUSP tile
-#'   subfolders. The combined cusp_shorelines.gpkg is also cached here.
-#' @param ncpu numeric, number of parallel workers used by
-#'   `elevatr::get_elev_point()` for the elevation query. Defaults to 6.
-#' @param max_coast_dist_m numeric, maximum distance (m) from the coast a
-#'   water supply can be to receive a non-NA `coast_dist_m` / `coast_elev_m`.
-#'   Defaults to 50000 (50 km).
-#' @param save logical, whether to save output files. Defaults to TRUE.
-#' @param output_dir character, directory path for saving
-#'   coastal_site_geometry.csv. Required when `save = TRUE`.
-#' @param verbose logical, whether to show progress messages.
+#'   Default: `50000` (50 km).
+#' @param save Logical. Whether to write the results.
+#'   * `TRUE`: writes `coastal_site_geometry.csv` to `output_dir` (creating
+#'     the folder if needed) and the combined shoreline,
+#'     `cusp_shorelines.gpkg`, to `cusp_dir_path`. Both replace existing
+#'     files. Stops with an error if `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
-#' @return tibble (geometry dropped) with wsd_source_id, park_unit,
-#'   park_name, coast_dist_m, coast_elev_m. 
+#'   Default: `TRUE`.
+#' @param output_dir String or `NULL`. The folder for
+#'   `coastal_site_geometry.csv`.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
 #'
+#'   Default: `rapid/inputs/coast_comp` in the shared data folder, which is
+#'   where the coastal indicator functions look for it.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints messages for each step, the run time and the paths of
+#'     the saved files.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble (no geometry), one row per water supply, with columns
+#'   `wsd_source_id`, `park_unit`, `park_name`, `coast_dist_m` (meters to the
+#'   nearest shoreline) and `coast_elev_m` (elevation in meters).
 #' @export
+#' @seealso [calc_storm_surge_exposure()], [calc_storm_surge_sensitivity()],
+#'   [calc_swi_exposure()] and [calc_inundation_exposure()], which read
+#'   `coastal_site_geometry.csv`.
+#' @examplesIf interactive() && dir.exists(wavacore::wava_data_path("all", "coast_comp_data", "NOAA_CUSP"))
+#' # Reads every CUSP shoreline tile (about 3 GB) and queries the USGS
+#' # elevation service, so it needs internet and takes several minutes
+#' ws <- wavacore::get_wsd(park = "BISC")
+#' geometry <- process_coastal_geometry(ws, save = FALSE)
+#' geometry
+
 process_coastal_geometry <- function(water_supplies,
                                      cusp_dir_path = wavacore::wava_data_path("all", "coast_comp_data", "NOAA_CUSP"),
                                      ncpu = 6,

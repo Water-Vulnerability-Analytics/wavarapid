@@ -1,43 +1,104 @@
-#' Calculate Drought Exposure Indicator
+#' @title Drought exposure: projected change in SPEI
 #'
-#' Computes projected change in drought conditions for NPS water supplies using
-#' the joined monthly drought output from `process_drought_data()`.
+#' @description
+#' Calculates the change in drought conditions at each water supply between
+#' a historical and a future period, using the Standardized
+#' Precipitation-Evapotranspiration Index (SPEI) of the monthly climatic water
+#' balance (precipitation minus PET) from [process_drought_data()].
 #'
-#' Drought is characterized by the Standardized Precipitation-Evapotranspiration
-#' Index (SPEI), calculated at a user-specified accumulation scale from monthly
-#' climatic water balance: precipitation minus PET.
+#' For each model run (model, scenario and ensemble member) and site:
+#' 1. SPEI is fitted with [SPEI::spei()] at `spei_scale` months, using the
+#'    historical reporting months as the reference distribution. Future
+#'    months are scored against that same historical reference.
+#' 2. `Inf` and `-Inf` SPEI values are capped at `spei_inf_cap` and
+#'    `-spei_inf_cap`; how many were capped is kept as diagnostics.
+#' 3. The change is the mean future SPEI minus the mean historical SPEI
+#'    (negative = drier). A period needs SPEI for at least 90% of its months.
 #'
-#' This function assumes historical/future assembly has already been handled
-#' upstream by `process_drought_data()`. Therefore, `hindcast` is intentionally
-#' not an argument here. Use `process_drought_data(hindcast = TRUE)` or
-#' `process_drought_data(hindcast = FALSE)` to choose the baseline construction.
+#' The ensemble is then summarized per site: the runs closest to the 10th,
+#' 50th and 90th percentiles of the change, and the percentage of runs that
+#' get drier. How the historical period was built (model historical runs or
+#' the training run) is decided upstream by `process_drought_data(hindcast =
+#' ...)`, so there is no `hindcast` argument here.
 #'
-#' Infinite SPEI values are directionally meaningful but numerically unbounded.
-#' Therefore, `-Inf` values are capped at `-spei_inf_cap` and `Inf` values are
-#' capped at `spei_inf_cap` before calculating mean historical/future SPEI.
-#' Counts of capped positive and negative infinite values are retained as
-#' diagnostics in the final output.
+#' @param water_supplies sf object. The water supplies, with `wsd_source_id`
+#'   and `park_unit` columns, e.g. from [wavacore::get_wsd()]. Only their IDs
+#'   are used, to pick rows from `drought_data`. Stops with an error if none
+#'   match. Required.
+#' @param drought_data String. Path to the monthly drought parquet file from
+#'   [process_drought_data()]. Stops with an error if it lacks the columns
+#'   that function writes. Default:
+#'   `rapid/inputs/loca2_drought_monthly_1980-2010_2035-2065_hindcast-TRUE.parquet`
+#'   in the shared data folder (about 1.3 GB), see
+#'   [wavacore::wava_data_path()].
+#' @param spei_scale Integer. The SPEI accumulation scale in months, passed
+#'   to [SPEI::spei()]. Each period is read with `spei_scale - 1` extra
+#'   months before it so its first month has a full window. Must be a whole
+#'   number of at least 1. Default: `12`.
+#' @param spei_inf_cap Numeric. The absolute value that replaces `Inf` and
+#'   `-Inf` SPEI values before the means are taken. Must be positive.
+#'   Default: `4`.
+#' @param historical Character or numeric vector of 2 years, e.g.
+#'   `c(1980, 2010)`. The first and last year of the historical period. It
+#'   must be covered by `drought_data`. Required.
+#' @param future Character or numeric vector of 2 years, e.g.
+#'   `c(2035, 2065)`. The first and last year of the future period. It must be
+#'   covered by `drought_data`. Required.
+#' @param water_year Logical. How months are grouped into periods.
+#'   * `TRUE`: each period runs from October of the year before the first
+#'     year to September of the last year.
+#'   * `FALSE`: each period runs from January of the first year to December
+#'     of the last year.
 #'
-#' @param water_supplies An `sf` object containing water supply locations.
-#'   Must include `wsd_source_id` and `park_unit`.
-#' @param drought_data Character. Path to joined monthly drought parquet created
-#'   by `process_drought_data()`.
-#' @param spei_scale Positive integer. Accumulation scale in months passed to
-#'   `SPEI::spei()`. Default is `12`.
-#' @param spei_inf_cap Numeric. Absolute cap used to replace `Inf` and `-Inf`
-#'   SPEI values before calculating mean SPEI. Default is `4`.
-#' @param historical Character vector of length 2 giving the historical period,
-#'   e.g. `c("1995", "2024")`.
-#' @param future Character vector of length 2 giving the future period,
-#'   e.g. `c("2035", "2065")`.
-#' @param water_year Logical. If `TRUE`, reporting windows run Oct-Sep.
-#' @param save Logical. If `TRUE`, writes results to disk.
-#' @param output_dir Character. Output directory when `save = TRUE`.
-#' @param verbose Logical. If `TRUE`, prints progress messages.
+#'   Default: `TRUE`.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `drought_exposure_<date>.csv`, named with today's date,
+#'     to `output_dir`, creating the folder if needed. Stops with an error if
+#'     `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
-#' @return A tibble with drought exposure indicators by water supply, including
-#'   SPEI fit diagnostics for capped `Inf` and `-Inf` monthly values.
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints the periods and windows used, progress, the run time and
+#'     the path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit` and:
+#'   * `raw_spei_change_p10`, `_p50`, `_p90`: the change in mean SPEI of the
+#'     model run closest to that percentile;
+#'   * `raw_spei_models_showing_decrease`: the percentage of model runs that
+#'     get drier; `raw_spei_model_count`: the number of runs;
+#'   * `raw_spei_*inf*` columns: counts and percentages of capped `Inf` and
+#'     `-Inf` months, over all fitted months, the reporting months, and each
+#'     period, and the percentage of runs with any;
+#'   * `norm_*` and `rank_*` versions of the SPEI change (inverted, so the
+#'     largest drying gets the highest score) and of
+#'     `raw_spei_models_showing_decrease`, from
+#'     [add_standardized_indicators()].
 #' @export
+#' @seealso [process_drought_data()], which makes `drought_data`;
+#'   [calc_drought_sensitivity()] for the historical trend.
+#' @examplesIf interactive() && file.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_drought_monthly_1980-2010_2035-2065_hindcast-TRUE.parquet"))
+#' # The default drought file is about 1.3 GB, and SPEI is fitted for every
+#' # model run, so this takes several minutes
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' drought_exp <- calc_drought_exposure(ws,
+#'                                      spei_scale = 12,
+#'                                      spei_inf_cap = 3,
+#'                                      historical = c(1980, 2010),
+#'                                      future = c(2035, 2065))
+#' drought_exp[, c("wsd_source_id", "raw_spei_change_p10", "raw_spei_change_p50",
+#'                 "raw_spei_models_showing_decrease")]
+
 calc_drought_exposure <- function(water_supplies,
                                   drought_data = wavacore::wava_data_path("rapid", "inputs", "loca2_drought_monthly_1980-2010_2035-2065_hindcast-TRUE.parquet"),
                                   spei_scale = 12,

@@ -2,7 +2,7 @@
 % Please edit documentation in R/process_precip_period_data.R
 \name{process_precip_period_data}
 \alias{process_precip_period_data}
-\title{Process LOCA2 precipitation-period metrics at water-supply locations}
+\title{Extract dry and wet spell lengths at water supplies}
 \usage{
 process_precip_period_data(
   nc_path,
@@ -14,30 +14,76 @@ process_precip_period_data(
 )
 }
 \arguments{
-\item{nc_path}{Character. Path to one LOCA2 precipitation-metrics NetCDF.}
+\item{nc_path}{String. Path to one precipitation-metrics NetCDF file, from
+\code{all/loca_cmip6_precip_products} in the shared data folder. Stops with an
+error if the file doesn't exist, lacks either variable, or has a name
+that can't be parsed. Required.}
 
-\item{water_supplies}{An \code{sf} point object containing \code{wsd_source_id} and
-\code{park_unit}.}
+\item{water_supplies}{sf object. The water supplies, as \code{POINT} geometries
+with \code{wsd_source_id} and \code{park_unit} columns, e.g. from
+\code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Stops with an error if any point is outside the
+LOCA2 grid. Required.}
 
-\item{output_dir}{Character. Directory where the processed parquet is saved.}
+\item{output_dir}{String. The folder for the parquet file, created if it
+doesn't exist. Default:
+\code{rapid/inputs/loca_cmip6_precip_periods_water_supplies} in the shared
+data folder, see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{overwrite}{Logical. If \code{FALSE}, an existing output is returned without
-reprocessing. Default is \code{FALSE}.}
+\item{overwrite}{Logical. What to do when the output file already exists.
+\itemize{
+\item \code{TRUE}: processes the file again and replaces it.
+\item \code{FALSE}: skips the file and returns the existing path.
+}
 
-\item{verbose}{Logical. If \code{TRUE}, prints progress messages.}
+Default: \code{FALSE}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints the file being read, each variable, and the run time.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-Invisibly returns the output parquet path.
+The path of the parquet file, invisibly.
 }
 \description{
-Extracts annual maximum consecutive dry-day and wet-day spell lengths from
-the revised LOCA2 precipitation-extremes NetCDF collection. Values are
-averaged over the same 3 x 3 neighborhood used by \code{process_loca2_mwbm()}.
-}
-\details{
-The source variables use a 2.54 mm/day threshold:
+Reads one NetCDF file of the LOCA2 precipitation-extremes collection and
+writes the yearly maximum spell lengths at each water supply to a parquet
+file. Run it once per file; \code{\link[=calc_dry_period_exposure]{calc_dry_period_exposure()}},
+\code{\link[=calc_wet_period_exposure]{calc_wet_period_exposure()}}, \code{\link[=calc_dry_period_sensitivity]{calc_dry_period_sensitivity()}} and
+\code{\link[=calc_wet_period_sensitivity]{calc_wet_period_sensitivity()}} read the folder.
+
+Each value is the mean over the 3 x 3 block of grid cells around the
+supply's nearest cell (the same block as \code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}), ignoring
+missing cells. The two variables use a 2.54 mm/day threshold:
 \itemize{
-\item \code{dry_spell_max_length}: annual maximum consecutive dry days (CDD)
-\item \code{wet_spell_max_length}: annual maximum consecutive wet days (CWD)
+\item \code{dry_spell_max_length}: the year's longest run of dry days (CDD);
+\item \code{wet_spell_max_length}: the year's longest run of wet days (CWD).
 }
+
+The model, scenario and run are read from the file name, which must follow
+\code{MODEL.SCENARIO.RUN.YEARS.LOCA_16thdeg_pr_metrics.nc}.
+
+The parquet file is \verb{<nc file name>.parquet} in \code{output_dir}, with one row
+per water supply and year and columns \code{wsd_source_id}, \code{park_unit},
+\code{year}, \code{model}, \code{ssp}, \code{run}, \code{nc_file}, \code{dry_spell_max_length} and
+\code{wet_spell_max_length}.
+}
+\examples{
+\dontshow{if (interactive() && dir.exists(wavacore::wava_data_path("all", "loca_cmip6_precip_products"))) withAutoprint(\{ # examplesIf}
+# One file is about 0.7 GB, so this takes a few minutes
+ws <- wavacore::get_wsd(park = "ZION")
+nc_name <- "ACCESS-CM2.historical.r1i1p1f1.1950-2014.LOCA_16thdeg_pr_metrics.nc"
+nc <- wavacore::wava_data_path("all", "loca_cmip6_precip_products", "historical", nc_name)
+out_file <- process_precip_period_data(nc, ws, output_dir = tempdir())
+head(arrow::read_parquet(out_file))
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_dry_period_exposure]{calc_dry_period_exposure()}}, \code{\link[=calc_wet_period_exposure]{calc_wet_period_exposure()}},
+\code{\link[=calc_dry_period_sensitivity]{calc_dry_period_sensitivity()}} and \code{\link[=calc_wet_period_sensitivity]{calc_wet_period_sensitivity()}},
+which read the parquet files; \code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}} for the other LOCA2
+variables.
 }

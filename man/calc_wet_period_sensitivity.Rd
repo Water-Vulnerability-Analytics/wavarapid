@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_wet_period_sensitivity.R
 \name{calc_wet_period_sensitivity}
 \alias{calc_wet_period_sensitivity}
-\title{Calculate Historical Consecutive Wet-Day Sensitivity Indicator}
+\title{Wet spell sensitivity: historical trend in the longest wet spell}
 \usage{
 calc_wet_period_sensitivity(
   water_supplies,
@@ -15,37 +15,90 @@ calc_wet_period_sensitivity(
 )
 }
 \arguments{
-\item{water_supplies}{An \code{sf} object containing \code{wsd_source_id} and
-\code{park_unit}.}
+\item{water_supplies}{sf object. The water supplies, with \code{wsd_source_id}
+and \code{park_unit} columns, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Only their IDs
+are used, to pick rows from the processed files. Required.}
 
-\item{period_data}{Character. Directory containing parquet files created by
-\code{process_precip_period_data()}.}
+\item{period_data}{String. The folder of parquet files from
+\code{\link[=process_precip_period_data]{process_precip_period_data()}}. Stops with an error if it doesn't exist
+or the files lack the expected columns. Default:
+\code{rapid/inputs/loca_cmip6_precip_periods_water_supplies} in the shared
+data folder, see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{historical}{Character vector of length 2 giving the historical
-start/end years.}
+\item{historical}{Character or numeric vector of 2 years, e.g.
+\code{c(1980, 2010)}. The first and last year of the trend period, read from
+the historical runs (1950-2014). Required.}
 
-\item{save}{Logical. If \code{TRUE}, writes results to disk.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{wet_period_sensitivity_<date>.csv}, named with today's
+date, to \code{output_dir}, creating the folder if needed. Stops with an
+error if \code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{output_dir}{Character. Output directory when \code{save = TRUE}.}
+Default: \code{FALSE}.}
 
-\item{verbose}{Logical. If \code{TRUE}, prints progress messages.}
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints each step, the run time and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-A tibble with one row per water supply and historical wet-period
-sensitivity indicators.
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit} and:
+\itemize{
+\item \code{raw_cwd_slope_p10}, \verb{_p50}, \verb{_p90}: the Sen's slope (days per year)
+of the model run closest to that percentile;
+\item \code{raw_cwd_percent_slope_p10}, \verb{_p50}, \verb{_p90}: the same for the percent
+slope (\% per year);
+\item \code{raw_cwd_trend_models_showing_decrease} and
+\code{raw_cwd_trend_models_significant_decrease} (Mann-Kendall p < 0.05):
+percentages of runs; \code{raw_cwd_trend_model_count}: the number of runs;
+\code{cwd_median_years_used};
+\item \verb{norm_*} and \verb{rank_*} versions of the percent slopes and of
+\code{raw_cwd_trend_models_showing_decrease}, from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}. The percent slopes are inverted, so
+shortening spells get a higher score.
+}
 }
 \description{
-Calculates historical trends in annual maximum consecutive wet-day spell
-length (CWD) from the processed LOCA2 precipitation-extremes dataset. Sen's
-slope and the Mann-Kendall test are calculated for each historical climate
-model at each water supply. The slope is divided by that model's historical
-mean CWD and multiplied by 100 to express sensitivity as percent change per
-year. Absolute slopes in days per year are retained as supporting values.
-The closest actual model values to the p10, p50, and p90 of the historical
-ensemble are retained.
+Calculates the historical trend in the yearly maximum number of
+consecutive wet days (CWD) at each water supply, from the historical runs
+of the LOCA2 precipitation-extremes data processed by
+\code{\link[=process_precip_period_data]{process_precip_period_data()}}. For each model and ensemble member, the
+trend is Sen's slope (\code{\link[trend:sens.slope]{trend::sens.slope()}}), tested with Mann-Kendall
+(\code{\link[trend:mk.test]{trend::mk.test()}}), in days per year and as a percentage of that run's
+historical mean per year.
+
+The ensemble is then summarized per site: the runs closest to the 10th,
+50th and 90th percentiles of each slope, and the percentage of runs with
+a shortening (and a significantly shortening) trend. Shortening wet
+spells mean more sensitivity. Only the percent slope is standardized, so
+the days per year are not counted twice.
 }
-\details{
-More-negative percent slopes and a larger percentage of models showing
-decreasing CWD indicate greater sensitivity to historically shortening wet
-periods.
+\examples{
+\dontshow{if (dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca_cmip6_precip_periods_water_supplies"))) withAutoprint(\{ # examplesIf}
+ws <- wavacore::get_wsd(park = "ZION")
+wet_sen <- calc_wet_period_sensitivity(ws, historical = c(1980, 2010))
+wet_sen[, c("wsd_source_id", "raw_cwd_percent_slope_p50",
+            "raw_cwd_trend_models_showing_decrease")]
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_dry_period_sensitivity]{calc_dry_period_sensitivity()}}, the paired dry spell indicator;
+\code{\link[=calc_wet_period_exposure]{calc_wet_period_exposure()}} for the projected change;
+\code{\link[=process_precip_period_data]{process_precip_period_data()}}, which makes the input files.
 }

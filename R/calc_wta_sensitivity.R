@@ -1,18 +1,70 @@
-#' Calculate historical Withdrawal-to-Availability (WTA) sensitivity
+#' @title WTA sensitivity: historical watershed water stress
 #'
-#' The 2000-2020 watershed WTA ratio for each water supply. WTA is a
-#' dimensionless ratio, so it is not divided by area. Higher values mean more
-#' historical water stress. norm_/rank_ columns are across supplies.
+#' @description
+#' Gives each water supply the 2000-2020 withdrawal-to-availability ratio
+#' (WTA) of its watershed, from the Blumberg and Warziniack WTA table. WTA is
+#' withdrawals divided by modeled runoff; higher values mean more water
+#' stress. It has no units, so it is not divided by area.
 #'
-#' @param water_supplies sf points with wsd_source_id, park_unit, park_name.
-#' @param data_dir Folder with wta_ratios_2000_2020.csv.
-#' @param watersheds sf polygons, or a WBD geodatabase path.
-#' @param huc_level HUC width: 2, 4, 6, or 8 (default).
-#' @param max_watershed_distance_km Nearest-watershed limit for points outside.
-#' @param save,output_dir Save wta_sensitivity_hucNN_YYYY-MM-DD.csv to output_dir.
-#' @param verbose Report coverage.
-#' @return Tibble with one row per supply.
+#' Each water supply gets the watershed it is in (the lowest HUC code when it
+#' sits on a shared boundary), or the nearest one within
+#' `max_watershed_distance_km`. The `norm_` and `rank_` columns are relative
+#' to the water supplies passed in.
+#'
+#' @param water_supplies sf object. The water supplies, as points with
+#'   `wsd_source_id`, `park_unit` and `park_name` columns, e.g. from
+#'   [wavacore::get_wsd()]. Required.
+#' @param data_dir String. The folder with `wta_ratios_2000_2020.csv`.
+#'   Default: `Latest county-level data/water_demand_projections` in the
+#'   shared data folder, see [wavacore::wava_data_path()].
+#' @param watersheds String or sf object. The watershed polygons, with a
+#'   `huc<huc_level>` column (e.g. `huc8`).
+#'   * String: path to a WBD geodatabase; the `WBDHU<huc_level>` layer is
+#'     read.
+#'   * sf object: the polygons, already read.
+#'
+#'   Default: `all/WBD_National_GDB.gdb` in the shared data folder.
+#' @param huc_level Integer. The watershed size: `2`, `4`, `6` or `8` (HUC2
+#'   to HUC8). Picks both the WTA rows and the watershed layer. Default:
+#'   `8L`.
+#' @param max_watershed_distance_km Numeric. How far, in km, a supply outside
+#'   every watershed can be from the nearest one and still use it
+#'   (`watershed_match_method = "nearest"`). Supplies farther away get `NA`
+#'   and `data_status = "unmatched_watershed"`. Default: `5`.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `wta_sensitivity_huc<NN>_<date>.csv` (e.g.
+#'     `wta_sensitivity_huc08_2026-10-21.csv`) to `output_dir`. The folder
+#'     must already exist; `output_dir` can't be `NULL`.
+#'   * `FALSE`: writes nothing.
+#'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file when
+#'   `save = TRUE`; ignored otherwise. Default: `NULL`.
+#' @param verbose Logical. Whether to print messages.
+#'   * `TRUE`: prints how many supplies got a historical WTA, and the path of
+#'     the saved file.
+#'   * `FALSE`: prints nothing.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit`, `park_name`, the watershed (`huc`, `watershed_match_method`,
+#'   `watershed_distance_km`), `raw_wta` (the 2000-2020 ratio), `data_status`
+#'   (`"ok"`, `"unmatched_watershed"` or `"missing_historical_ratio"`), the
+#'   `norm_wta` and `rank_wta` columns from [add_standardized_indicators()],
+#'   and `aggregation`, `historical_period` and `wta_units`.
 #' @export
+#' @seealso [calc_wta_exposure()] for the projected change;
+#'   [calc_nearby_use_sensitivity()] for county withdrawals.
+#' @examplesIf interactive() && dir.exists(wavacore::wava_data_path("all", "WBD_National_GDB.gdb"))
+#' # Reads the national HUC8 layer of the WBD geodatabase, so it takes a few
+#' # minutes. Read it once and pass it in to reuse it.
+#' huc8 <- sf::st_read(wavacore::wava_data_path("all", "WBD_National_GDB.gdb"),
+#'                     layer = "WBDHU8", quiet = TRUE)
+#' ws <- wavacore::get_wsd(park = c("ZION", "ROMO"))
+#' wta_sen <- calc_wta_sensitivity(ws, watersheds = huc8)
+#' wta_sen[, c("wsd_source_id", "huc", "raw_wta", "data_status")]
+
 calc_wta_sensitivity <- function(water_supplies,
                                  data_dir = wavacore::wava_data_path("Latest county-level data", "water_demand_projections"),
                                  watersheds = wavacore::wava_data_path("all", "WBD_National_GDB.gdb"),

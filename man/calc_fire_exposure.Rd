@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_fire_exposure.R
 \name{calc_fire_exposure}
 \alias{calc_fire_exposure}
-\title{Calculate Fire Exposure Indicator}
+\title{Fire exposure: projected change in fire probability}
 \usage{
 calc_fire_exposure(
   water_supplies,
@@ -14,23 +14,89 @@ calc_fire_exposure(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with water supply locations}
+\item{water_supplies}{sf object. The water supplies, as points with
+\code{wsd_source_id}, \code{park_unit} and \code{park_name} columns, e.g. from
+\code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Required.}
 
-\item{fire_prob_data}{fire probability data from Gao et al. 2021 calculated in \code{rapid_data_processing.Rmd}}
+\item{fire_prob_data}{Data frame. The change in fire probability by pyrome
+and climate model, with columns \code{PYROME}, \code{GCM} and \code{delta_fp} (percent
+change), as made in \code{rapid_data_processing.Rmd} and saved to
+\code{rapid/inputs/fire_probability_change.csv} in the shared data folder.
+Required.}
 
-\item{pyrome_data}{sf object of CONUS pyromes}
+\item{pyrome_data}{sf object. The pyrome polygons, with a \code{PYROME} column,
+e.g. \code{rapid/inputs/pyromes.gpkg} in the shared data folder. Required.}
 
-\item{save}{logical, whether to save output}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{fire_exposure_<date>.csv}, named with today's date, to
+\code{output_dir}, creating the folder if needed. Stops with an error if
+\code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{output_dir}{character, directory path for saving files}
+Default: \code{FALSE}.}
 
-\item{verbose}{logical, whether to show progress messages}
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: shows a progress bar over the water supplies and messages with
+the run time and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble with water supply ID, park info, and fire exposure indicators
+A tibble, one row per water supply and pyrome, with
+\code{wsd_source_id}, \code{park_unit}, \code{park_name}, \code{PYROME} and:
+\itemize{
+\item \code{GCM_p10}, \code{GCM_p50}, \code{GCM_p90}: the climate model closest to each
+percentile;
+\item \code{raw_fire_prob_change_p10}, \verb{_p50}, \verb{_p90}: that model's percent change
+in fire probability;
+\item \code{raw_fire_models_showing_increase}: the percentage of models with an
+increase;
+\item \verb{norm_*} and \verb{rank_*} versions of the three changes from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}. A larger increase gets a higher score.
+}
 }
 \description{
-Calculates future fire probability changes for water supplies using
-data from Gao et al. 2021. Computes area-weighted future fire probability
-for water supply pyromes across multiple climate scenarios.
+Assigns each water supply the projected mid-century change in fire
+probability of its pyrome, from Gao et al. (2021). For each pyrome, the
+climate models closest to the 10th, 50th and 90th percentiles of the
+change are kept, along with the percentage of models that show an
+increase. A supply outside every pyrome (e.g. outside the contiguous US)
+gets the nearest pyrome. A supply that touches several pyromes gets one
+row per pyrome.
+}
+\examples{
+\dontshow{if (file.exists(wavacore::wava_data_path("rapid", "inputs", "pyromes.gpkg"))) withAutoprint(\{ # examplesIf}
+ws <- wavacore::get_wsd(park = "ZION")
+pyromes <- sf::st_read(wavacore::wava_data_path("rapid", "inputs", "pyromes.gpkg"),
+                       quiet = TRUE)
+fire_prob <- readr::read_csv(wavacore::wava_data_path("rapid", "inputs",
+                                                      "fire_probability_change.csv"),
+                             show_col_types = FALSE)
+fire_exp <- calc_fire_exposure(ws, fire_prob_data = fire_prob, pyrome_data = pyromes)
+fire_exp[, c("wsd_source_id", "PYROME", "raw_fire_prob_change_p50",
+             "raw_fire_models_showing_increase")]
+\dontshow{\}) # examplesIf}
+}
+\references{
+Gao, P. et al. (2021). Robust projections of future fire probability for
+the conterminous United States. Science of the Total Environment, 789,
+147872.
+}
+\seealso{
+\code{\link[=calc_fire_sensitivity]{calc_fire_sensitivity()}} for current wildfire hazard;
+\code{\link[=calc_vulnerability_index]{calc_vulnerability_index()}}.
 }

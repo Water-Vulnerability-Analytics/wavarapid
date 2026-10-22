@@ -2,21 +2,61 @@
 % Please edit documentation in R/helper_functions.R
 \name{add_standardized_indicators}
 \alias{add_standardized_indicators}
-\title{Add standardized normalized and ranked columns to indicator data}
+\title{Add normalized and ranked versions of raw indicator columns}
 \usage{
 add_standardized_indicators(data, prefix, invert = FALSE)
 }
 \arguments{
-\item{data}{tibble with raw indicator columns}
+\item{data}{Data frame. The indicator table, with one or more \verb{raw_*}
+columns. Required.}
 
-\item{prefix}{character, prefix pattern to match columns (e.g., "raw_fire_prob")}
+\item{prefix}{String. The start of the names of the columns to transform,
+e.g. \code{"raw_fire_prob_change"} (matches \code{raw_fire_prob_change_p10},
+\verb{_p50} and \verb{_p90}). The matching columns should start with \code{raw_}: the
+new names are made by replacing \code{raw_}, so a matching column without it
+is overwritten. Required.}
 
-\item{invert}{logical, whether to invert the direction of scaling so that
-higher raw values correspond to lower normalized and ranked scores.}
+\item{invert}{Logical. The direction of the scale.
+\itemize{
+\item \code{TRUE}: the highest raw value gets the lowest score (\code{norm} is
+\code{1 - norm}, \code{rank} is \code{100 - rank}). Use it when a higher raw value
+means lower vulnerability, e.g. an increase in runoff.
+\item \code{FALSE}: the highest raw value gets \code{norm = 1} and the highest rank.
+}
+
+Default: \code{FALSE}.}
 }
 \value{
-tibble with added norm_ and rank_ columns
+\code{data} with a \verb{norm_*} and a \verb{rank_*} column added after the
+existing columns for each matching column.
 }
 \description{
-Add standardized normalized and ranked columns to indicator data
+For every column whose name starts with \code{prefix}, adds two columns:
+\itemize{
+\item \verb{norm_*}: the values rescaled to 0-1 with \code{\link[scales:rescale]{scales::rescale()}} (all \code{NA}
+if the column is all \code{NA}).
+\item \verb{rank_*}: the percentile rank, 0-100, from \code{\link[dplyr:cume_dist]{dplyr::cume_dist()}}.
+}
+
+The new names replace \code{raw_} with \code{norm_} and \code{rank_}, so
+\code{raw_fire_prob_change_p50} gets \code{norm_fire_prob_change_p50} and
+\code{rank_fire_prob_change_p50}. Every \verb{calc_*()} indicator function calls this
+on its output. Missing values stay missing. On a grouped data frame the
+scaling and ranking are done within each group.
+}
+\examples{
+fire <- data.frame(
+  wsd_source_id = c("A", "B", "C", "D"),
+  raw_fire_prob_change_p50 = c(5, 10, 20, NA)
+)
+
+# Higher fire probability change = higher score
+add_standardized_indicators(fire, "raw_fire_prob_change")
+
+# Inverted: higher raw value = lower score
+add_standardized_indicators(fire, "raw_fire_prob_change", invert = TRUE)
+}
+\seealso{
+\code{\link[=minmax_norm]{minmax_norm()}}, the rescaling used by
+\code{\link[=calc_vulnerability_index]{calc_vulnerability_index()}}.
 }

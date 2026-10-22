@@ -1,31 +1,74 @@
-#' Calculate Historical Consecutive Dry-Day Sensitivity Indicator
+#' @title Dry spell sensitivity: historical trend in the longest dry spell
 #'
-#' Calculates historical trends in annual maximum consecutive dry-day spell
-#' length (CDD) from the processed LOCA2 precipitation-extremes dataset. Sen's
-#' slope and the Mann-Kendall test are calculated for each historical climate
-#' model at each water supply. The slope is divided by that model's historical
-#' mean CDD and multiplied by 100 to express sensitivity as percent change per
-#' year. Absolute slopes in days per year are retained as supporting values.
-#' The closest actual model values to the p10, p50, and p90 of the historical
-#' ensemble are retained.
+#' @description
+#' Calculates the historical trend in the yearly maximum number of
+#' consecutive dry days (CDD) at each water supply, from the historical runs
+#' of the LOCA2 precipitation-extremes data processed by
+#' [process_precip_period_data()]. For each model and ensemble member, the
+#' trend is Sen's slope ([trend::sens.slope()]), tested with Mann-Kendall
+#' ([trend::mk.test()]), in days per year and as a percentage of that run's
+#' historical mean per year.
 #'
-#' Larger positive percent slopes and a larger percentage of models showing
-#' increasing CDD indicate greater sensitivity to historically lengthening dry
-#' periods.
+#' The ensemble is then summarized per site: the runs closest to the 10th,
+#' 50th and 90th percentiles of each slope, and the percentage of runs with
+#' a lengthening (and a significantly lengthening) trend. Lengthening dry
+#' spells mean more sensitivity. Only the percent slope is standardized, so
+#' the days per year are not counted twice.
 #'
-#' @param water_supplies An `sf` object containing `wsd_source_id` and
-#'   `park_unit`.
-#' @param period_data Character. Directory containing parquet files created by
-#'   `process_precip_period_data()`.
-#' @param historical Character vector of length 2 giving the historical
-#'   start/end years.
-#' @param save Logical. If `TRUE`, writes results to disk.
-#' @param output_dir Character. Output directory when `save = TRUE`.
-#' @param verbose Logical. If `TRUE`, prints progress messages.
+#' @param water_supplies sf object. The water supplies, with `wsd_source_id`
+#'   and `park_unit` columns, e.g. from [wavacore::get_wsd()]. Only their IDs
+#'   are used, to pick rows from the processed files. Required.
+#' @param period_data String. The folder of parquet files from
+#'   [process_precip_period_data()]. Stops with an error if it doesn't exist
+#'   or the files lack the expected columns. Default:
+#'   `rapid/inputs/loca_cmip6_precip_periods_water_supplies` in the shared
+#'   data folder, see [wavacore::wava_data_path()].
+#' @param historical Character or numeric vector of 2 years, e.g.
+#'   `c(1980, 2010)`. The first and last year of the trend period, read from
+#'   the historical runs (1950-2014). Required.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `dry_period_sensitivity_<date>.csv`, named with today's
+#'     date, to `output_dir`, creating the folder if needed. Stops with an
+#'     error if `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
-#' @return A tibble with one row per water supply and historical dry-period
-#'   sensitivity indicators.
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints each step, the run time and the path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit` and:
+#'   * `raw_cdd_slope_p10`, `_p50`, `_p90`: the Sen's slope (days per year)
+#'     of the model run closest to that percentile;
+#'   * `raw_cdd_percent_slope_p10`, `_p50`, `_p90`: the same for the percent
+#'     slope (% per year);
+#'   * `raw_cdd_trend_models_showing_increase` and
+#'     `raw_cdd_trend_models_significant_increase` (Mann-Kendall p < 0.05):
+#'     percentages of runs; `raw_cdd_trend_model_count`: the number of runs;
+#'     `cdd_median_years_used`;
+#'   * `norm_*` and `rank_*` versions of the percent slopes and of
+#'     `raw_cdd_trend_models_showing_increase`, from
+#'     [add_standardized_indicators()]. Lengthening spells get a higher
+#'     score.
 #' @export
+#' @seealso [calc_wet_period_sensitivity()], the paired wet spell indicator;
+#'   [calc_dry_period_exposure()] for the projected change;
+#'   [process_precip_period_data()], which makes the input files.
+#' @examplesIf dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca_cmip6_precip_periods_water_supplies"))
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' dry_sen <- calc_dry_period_sensitivity(ws, historical = c(1980, 2010))
+#' dry_sen[, c("wsd_source_id", "raw_cdd_percent_slope_p50",
+#'             "raw_cdd_trend_models_showing_increase")]
+
 calc_dry_period_sensitivity <- function(
     water_supplies,
     period_data = wavacore::wava_data_path("rapid", "inputs", "loca_cmip6_precip_periods_water_supplies/"),

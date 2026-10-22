@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_nearby_use_exposure.R
 \name{calc_nearby_use_exposure}
 \alias{calc_nearby_use_exposure}
-\title{Calculate nearby-use exposure from county demand projections}
+\title{Nearby use exposure: projected change in county water withdrawals}
 \usage{
 calc_nearby_use_exposure(
   water_supplies,
@@ -18,44 +18,116 @@ calc_nearby_use_exposure(
 )
 }
 \arguments{
-\item{water_supplies}{sf points with wsd_source_id, park_unit, park_name.}
+\item{water_supplies}{sf object. The water supplies, as points with
+\code{wsd_source_id}, \code{park_unit} and \code{park_name} columns, e.g. from
+\code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Required.}
 
-\item{data_dir}{Folder with the water_demand_projections CSVs.}
+\item{data_dir}{String. The folder with \code{pub_irr_monthly_avg_2000_2020.csv},
+\code{pub_irr_monthly_avg_2040_2070.csv}, \code{tep_monthly_avg_2000_2020.csv} and
+\code{tep_monthly_avg_2040_2070.csv}. Default:
+\verb{Latest county-level data/water_demand_projections} in the shared data
+folder, see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{save, output_dir}{Save nearby_use_exposure_YYYY-MM-DD.csv to output_dir.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{nearby_use_exposure_<date>.csv}, named with today's
+date, to \code{output_dir}. The folder must already exist; \code{output_dir}
+can't be \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{verbose}{Report the saved filename.}
+Default: \code{FALSE}.}
 
-\item{months}{Calendar months to average (default all 12).}
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file when
+\code{save = TRUE}; ignored otherwise. Default: \code{NULL}.}
 
-\item{emission_scenarios, climate_models}{Optional ensemble subsets.}
+\item{verbose}{Logical. Whether to print the path of the saved file.
+\itemize{
+\item \code{TRUE}: prints it when \code{save = TRUE}.
+\item \code{FALSE}: prints nothing.
+}
 
-\item{max_county_distance_km}{Nearest-county limit for points outside counties.}
+Default: \code{TRUE}.}
+
+\item{months}{Integer vector. The calendar months (1-12) to average, e.g.
+\code{6:8} for summer. Default: \code{1:12}.}
+
+\item{emission_scenarios}{Character vector or \code{NULL}. The emission
+scenarios to use.
+\itemize{
+\item A character vector, e.g. \code{"ssp245"}: keeps only those members.
+\item \code{NULL}: keeps every scenario except ssp126.
+}
+
+Default: \code{NULL}.}
+
+\item{climate_models}{Character vector or \code{NULL}. The climate models to
+use, in the same way as \code{emission_scenarios}. Default: \code{NULL} (all).}
+
+\item{max_county_distance_km}{Numeric. How far, in km, a supply outside
+every county can be from the nearest county and still use it. Supplies
+farther away get \code{NA} and \code{data_status = "unmatched_county"}. Default:
+\code{5}.}
 }
 \value{
-Tibble with one row per supply. Results are NA where data_status is
-not "ok": no county within max_county_distance_km (unmatched_county), the
-county is absent from the historical or future file (missing_\emph{\emph{county), a
-month or expected plant is unreported (incomplete}}_data), or no ensemble
-member is complete (no_complete_model_members). Percent change is also NA
-when historical withdrawal is zero (zero_historical_withdrawal). Gaps are
-left NA rather than treated as zero use.
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit}, \code{park_name}, the county (\code{fips}, \code{county_area_km2},
+\code{county_distance_km}, \code{county_source}) and:
+\itemize{
+\item \code{raw_use_change_p10}, \verb{_p50}, \verb{_p90}: the percent change of the member
+closest to that percentile of absolute change;
+\item \code{raw_absolute_use_change_p10}, \verb{_p50}, \verb{_p90}: that member's absolute
+change (MGD per km2), and \code{future_withdrawal_mgd_p10}, \verb{_p50}, \verb{_p90};
+\item \code{raw_models_showing_increase_pct}: the percentage of members with an
+increase;
+\item \code{historic_withdrawal_mgd} and coverage counts (\code{n_valid_models},
+\code{n_model_members}, \code{missing_future_plant_records}, and the numbers of
+public and complete months in each period);
+\item \code{data_status}: \code{"ok"}, \code{"partial_ensemble"}, \code{"unmatched_county"},
+\code{"missing_historical_county"}, \code{"missing_future_county"},
+\code{"incomplete_historical_data"}, \code{"incomplete_future_data"},
+\code{"no_complete_model_members"} or \code{"zero_historical_withdrawal"} (the
+percent change is \code{NA});
+\item \verb{norm_*} and \verb{rank_*} versions of every \code{raw_} column from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}.
+}
 }
 \description{
-Compares 2040-2070 with 2000-2020 county withdrawals (public supply + crop
-irrigation + thermoelectric, in MGD) from Blumberg and Warziniack. Each
-model/scenario pair is one ensemble member; ssp126 is excluded. For p10/p50/
-p90, reports the actual member nearest the percentile of absolute change.
-}
-\details{
+Compares county water withdrawals in 2040-2070 with 2000-2020 (public
+supply, crop irrigation and thermoelectric, in million gallons per day,
+MGD), from the Blumberg and Warziniack county demand projections. Each
+climate model and emission scenario pair is one ensemble member; ssp126 is
+left out.
+
+Each water supply gets the 2020 TIGER/Line county it is in (downloaded
+with \code{\link[tigris:counties]{tigris::counties()}}, so it needs internet), or the nearest county
+within \code{max_county_distance_km}. For each county and member, the monthly
+withdrawals in \code{months} are averaged, weighted by days, and compared with
+the historical average:
 \itemize{
-\item Absolute change: (future - historical) / county area, in MGD/km2.
-\item Percent change: 100 * (future - historical) / historical MGD.
-\item A missing month, or a power plant expected in that period but not
-reported, makes a county total NA. Plants retired out of the projections
-are not expected in the future period.
+\item absolute change: (future - historical) / county land area, MGD per km2;
+\item percent change: 100 * (future - historical) / historical.
 }
 
-Supplies use the 2020 TIGER/Line county they fall in, or the nearest county
-within max_county_distance_km. norm_/rank_ columns are across supplies.
+For the 10th, 50th and 90th percentiles of the absolute change, the
+member closest to each is reported. A missing month, or a power plant
+that should report in that period but doesn't, makes a county total \code{NA}.
+Plants retired in the projections (no withdrawals in the future file) are
+not expected in the future period. Gaps stay \code{NA} rather than being read
+as zero use. The \code{norm_} and \code{rank_} columns are relative to the water
+supplies passed in.
+}
+\examples{
+\dontshow{if (interactive() && dir.exists(wavacore::wava_data_path("Latest county-level data", "water_demand_projections"))) withAutoprint(\{ # examplesIf}
+# Downloads the county boundaries and reads about 140 MB of projections,
+# so it needs internet and takes a few minutes
+ws <- wavacore::get_wsd(park = c("ZION", "ROMO"))
+use_exp <- calc_nearby_use_exposure(ws)
+use_exp[, c("wsd_source_id", "fips", "raw_use_change_p90", "data_status")]
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_nearby_use_sensitivity]{calc_nearby_use_sensitivity()}} for historical use;
+\code{\link[=calc_wta_exposure]{calc_wta_exposure()}} for the change in watershed water stress from the
+same projections.
 }

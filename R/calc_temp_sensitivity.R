@@ -1,25 +1,71 @@
-#' Calculate Historical Temperature Sensitivity Indicator
+#' @title Temperature sensitivity: historical trend in annual mean air temperature
 #'
-#' Calculates a historical temperature sensitivity indicator from processed
-#' LOCA2/MWBM temperature data. This follows the precipitation sensitivity helper
-#' structure, but uses annual mean temperature and raw temperature slopes in
-#' degrees C per year rather than percent-scaled change.
+#' @description
+#' Calculates the historical trend in annual mean air temperature at each
+#' water supply. Of the temperature files in `temp_data` (names containing
+#' tas, temp, temperature, Tmin or Tmax), it reads the training or observed
+#' ones (Jay, lusu, livneh or training in the name); if there are none, the
+#' `historical` model files; if there are none of those either, all of them.
+#' Values from several files are averaged. Monthly values are averaged over
+#' each site's grid cells and over the year. The slope is in degrees C per
+#' year; there is no percent version. The trend is Sen's slope
+#' ([trend::sens.slope()]), tested with Mann-Kendall ([trend::mk.test()]);
+#' sites with fewer than 3 years get `NA`.
 #'
-#' @param water_supplies sf object with water supply locations.
-#' @param temp_data character, directory containing processed LOCA2/MWBM temperature files.
-#'   Defaults to `wava_data_path("rapid", "inputs", "loca2_temperature_water_supplies/")`.
-#' @param historical Character vector of length 2 giving the start and end years
-#'   (in `"YYYY"` format) that define the historical period.
-#' @param water_year T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.
-#' @param save logical, whether to save output. Default is `FALSE`.
-#' @param output_dir character, directory path for saving files. Required if
-#'   `save = TRUE`.
-#' @param verbose logical, whether to show progress messages. Default is `TRUE`.
+#' @param water_supplies sf object. The water supplies, with a
+#'   `wsd_source_id` column, e.g. from [wavacore::get_wsd()]. Only their IDs
+#'   are used, to pick rows from the processed file. Required.
+#' @param temp_data String. The folder of processed temperature parquet
+#'   files from [process_loca2_mwbm()]. Stops with an error if it has no
+#'   parquet files. Default: `rapid/inputs/loca2_temperature_water_supplies`
+#'   in the shared data folder,
+#'   see [wavacore::wava_data_path()].
+#' @param historical Character or numeric vector of 2 years, e.g.
+#'   `c(1980, 2010)`. The first and last year of the trend period. Required.
+#' @param water_year Logical. How months are grouped into years.
+#'   * `TRUE`: water years, October to September, labelled by the year they
+#'     end in.
+#'   * `FALSE`: calendar years.
 #'
-#' @return tibble with one row per water supply and historical temperature
-#'   sensitivity indicators.
+#'   Default: `TRUE`.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `temperature_sensitivity_<date>.csv`, named with today's
+#'     date, to `output_dir`, creating the folder if needed. Stops with an
+#'     error if `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: shows a progress bar and messages with the run time and the
+#'     path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit` and:
+#'   * `raw_avg_temperature`: mean annual temperature (degrees C);
+#'   * `raw_slope_temperature`: Sen's slope (degrees C per year);
+#'   * `n_years`, `mk_significant` (Mann-Kendall p < 0.05) and
+#'     `trend_direction` (`"increasing"`, `"decreasing"` or `"no change"`);
+#'   * `norm_*` and `rank_*` versions of both `raw_*` columns from
+#'     [add_standardized_indicators()]. Not inverted: warmer or faster
+#'     warming gets a higher score.
 #' @export
+#' @seealso [calc_temp_exposure()] for the projected change;
+#'   [process_loca2_mwbm()], which makes the input files.
+#' @examplesIf file.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_temperature_water_supplies", "jay_alder_tas_MWBM_LOCA2_training_195001-201412.nc.parquet"))
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' temp_sen <- calc_temp_sensitivity(ws, historical = c(1980, 2010))
+#' temp_sen[, c("wsd_source_id", "raw_avg_temperature", "raw_slope_temperature",
+#'              "trend_direction")]
+
 calc_temp_sensitivity <- function(water_supplies,
                                   temp_data = wavacore::wava_data_path("rapid", "inputs", "loca2_temperature_water_supplies/"),
                                   historical,

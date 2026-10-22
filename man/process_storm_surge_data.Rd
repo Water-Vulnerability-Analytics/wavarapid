@@ -2,7 +2,7 @@
 % Please edit documentation in R/process_storm_surge_data.R
 \name{process_storm_surge_data}
 \alias{process_storm_surge_data}
-\title{Process Storm Surge Data (Muis 2023, 10-year return period)}
+\title{Prepare the storm surge stations (Muis et al. 2023)}
 \usage{
 process_storm_surge_data(
   data_dir,
@@ -12,56 +12,82 @@ process_storm_surge_data(
 )
 }
 \arguments{
-\item{data_dir}{character, path to a directory containing only the RP10
-\code{surge} NetCDF files, all periods and CI variants (e.g.
-\verb{data/all/coast_comp_data/storm_surge_muis_2023_RP10/}). Every \code{.nc} file
-in this directory is read.}
+\item{data_dir}{String. The folder with the RP10 \code{surge} NetCDF files.
+Every \code{.nc} file in it is read, so it must not also hold the \code{waterlevel}
+variant of the download (same models and periods, a different quantity).
+The model, period and confidence interval are read from each file name.
+Stops with an error if the folder doesn't exist or has no \code{.nc} files.
+Required.}
 
-\item{save}{logical, whether to save output GeoPackage. Defaults to TRUE.}
+\item{save}{Logical. Whether to write the stations to a GeoPackage.
+\itemize{
+\item \code{TRUE}: writes \code{storm_surge_RP10_muis_2023.gpkg} to \code{output_dir},
+creating the folder if needed and replacing an existing file. Stops
+with an error if \code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{output_dir}{character, directory path where the GeoPackage will be saved.
-Required when \code{save = TRUE}. Defaults to \code{wava_data_path("rapid", "inputs", "storm_surge")}.}
+Default: \code{TRUE}.}
 
-\item{verbose}{logical, whether to show progress messages. Defaults to TRUE.}
+\item{output_dir}{String or \code{NULL}. The folder for the GeoPackage.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{rapid/inputs/storm_surge} in the shared data folder, see
+\code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints messages for each step, the run time and the path of the
+saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-sf object (EPSG:4326) of storm surge stations, one row per
-\code{station_idx} per \code{model}, with columns \code{historical_p05}/\code{historical_mean}/
-\code{historical_p95} (1951-1980), \code{reference_p05}/\code{reference_mean}/\code{reference_p95}
-(1985-2014), and \code{future_p05}/\code{future_mean}/\code{future_p95} (2021-2050), all
-in meters
+An sf object of points (CRS 4326), one row per station and model,
+with columns \code{station_idx}, \code{model}, \code{historical_p05},
+\code{historical_mean}, \code{historical_p95} (1951-1980), \code{reference_p05},
+\code{reference_mean}, \code{reference_p95} (1985-2014), \code{future_p05},
+\code{future_mean}, \code{future_p95} (2021-2050), \code{lat} and \code{lon}. Surge levels
+are in meters; \verb{_mean} is the best fit and \verb{_p05}/\verb{_p95} the low and
+high bounds.
 }
 \description{
-Reads every RP10 storm surge NetCDF file in \code{data_dir} for 4 CMIP6
-models (CMCC-CM2-VHR4, EC-Earth3P-HR, HadGEM3-GC31-HM, HadGEM3-GC31-HM-SST),
-across all available periods and all 3 confidence-interval variants, and
-reshapes them into one row per station per model. Every \code{.nc} file in
-\code{data_dir} is read, so the directory must contain only the \code{surge} variant
-of the CDS download — the \code{waterlevel} variant (same models/periods/CI
-variants, different physical quantity) must not be placed here.
-This function does not compute a surge change or select a worst-case model
-across the ensemble. Those calculations happen in \code{calc_storm_surge_exposure()},
-which calls this functions output (GeoPackage) as its input.
-}
-\details{
+Reads every 10-year return period storm surge NetCDF file in \code{data_dir}
+(4 CMIP6 models: CMCC-CM2-VHR4, EC-Earth3P-HR, HadGEM3-GC31-HM and
+HadGEM3-GC31-HM-SST; 3 periods; 3 confidence-interval variants) and reshapes
+them into one row per station and model. It doesn't calculate a change or
+pick a model; \code{\link[=calc_storm_surge_exposure]{calc_storm_surge_exposure()}} and
+\code{\link[=calc_storm_surge_sensitivity]{calc_storm_surge_sensitivity()}} do that from its output.
+
+The files come from the Copernicus Climate Data Store
+(\url{https://cds.climate.copernicus.eu/datasets/sis-water-level-change-indicators-cmip6}):
+variable surge level, derived variable absolute value, product type single
+model, statistic 10-year return period, scenario SSP5-8.5 (the only one
+available), all 3 confidence intervals (best fit, low bound, high bound)
+and all 3 periods: historical (1951-1980), reference (1985-2014, the
+baseline for the future change) and future (2021-2050). The function
+doesn't check that the reference files are there.
+
 Source: Muis et al. (2023), "Global Projections of Storm Surges Using
 High-Resolution CMIP6 Climate Models", Earth's Future.
-Data downloaded from Copernicus Climate Data Store:
-https://cds.climate.copernicus.eu/datasets/sis-water-level-change-indicators-cmip6
-\itemize{
-\item Variable: surge level
-\item Derived variable: absolute value
-\item Product type: single model
-\item Statistic: 10-year return period
-\item Confidence interval: all 3 variants are read and kept — best-fit
-(central estimate, \verb{_mean}), low-bound (\verb{_p05}), and high-bound (\verb{_p95})
-\item Periods: \code{historical} (1951-1980), \code{reference} (1985-2014, the
-baseline used for computing future change), and \code{future} (2021-2050) --
-all 3 must be present in \code{data_dir} for \code{calc_storm_surge_exposure()}/
-\code{calc_storm_surge_sensitivity()} downstream; this function does not
-currently validate that \code{reference} files were actually downloaded
-\item Scenario: SSP5-8.5 (the only scenario available in this dataset)
-\item Models: all 4 HighResMIP ensemble members, kept separate (not reduced
-to a worst-case model here)
 }
+\examples{
+\dontshow{if (dir.exists(wavacore::wava_data_path("all", "coast_comp_data", "storm_surge_muis_2023_RP10"))) withAutoprint(\{ # examplesIf}
+# Reshape the NetCDF files without writing the GeoPackage
+stations <- process_storm_surge_data(
+  data_dir = wavacore::wava_data_path("all", "coast_comp_data", "storm_surge_muis_2023_RP10"),
+  save = FALSE
+)
+table(stations$model)
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_storm_surge_exposure]{calc_storm_surge_exposure()}} and
+\code{\link[=calc_storm_surge_sensitivity]{calc_storm_surge_sensitivity()}}, which read the GeoPackage.
 }

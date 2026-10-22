@@ -2,7 +2,7 @@
 % Please edit documentation in R/process_groundwater_depth.R
 \name{process_groundwater_depth}
 \alias{process_groundwater_depth}
-\title{Process Modeled Distance to Groundwater (Water Table) Depth for Water Supplies}
+\title{Modeled depth to the water table at each water supply}
 \usage{
 process_groundwater_depth(
   water_supplies,
@@ -16,49 +16,84 @@ process_groundwater_depth(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with wsd_source_id, park_unit, park_name.}
+\item{water_supplies}{sf object. The water supplies, as points with
+\code{wsd_source_id}, \code{park_unit} and \code{park_name} columns, e.g. from
+\code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Required.}
 
-\item{wtd_path}{character, path to the CONUS WTD raster. Defaults to the
-local copy downloaded from Zenodo; can also be a \verb{/vsicurl/} URL.}
+\item{wtd_path}{String. Path to the CONUS WTD raster (meters). Can also be
+a \verb{/vsicurl/} URL, so GDAL reads only the parts it needs. Default: the
+copy downloaded from Zenodo, in \code{all/groundwater_sensitivity} in the
+shared data folder (about 37 GB), see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{start_buffer_m}{numeric, initial search radius (m) used to fill
-sites with no raster overlap. Defaults to 500.}
+\item{start_buffer_m}{Numeric. The first search radius, in meters, for
+points with no value. Default: \code{500}.}
 
-\item{max_buffer_m}{numeric, largest search radius (m) tried before giving
-up on a site. Defaults to 50000.}
+\item{max_buffer_m}{Numeric. The largest search radius, in meters. Points
+with no valid cell within it get \code{NA}. Default: \code{50000} (50 km).}
 
-\item{save}{logical, whether to save output CSV. Defaults to TRUE.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \code{wtd_all_sites.csv} to \code{output_dir}, creating the folder
+if needed and replacing an existing file. Stops with an error if
+\code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{output_dir}{character, directory where CSV is written.
-Defaults to \code{wava_data_path("rapid", "inputs", "groundwater_depth")}.}
+Default: \code{FALSE}.}
 
-\item{verbose}{logical, print progress messages. Defaults to TRUE.}
+\item{output_dir}{String or \code{NULL}. The folder for \code{wtd_all_sites.csv}.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{rapid/inputs/groundwater_depth} in the shared data folder.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints how many points are being filled, each point left as
+\code{NA}, and the run time.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-data.frame of wsd_source_id, park_unit, park_name, wtd_point_m.
+A data frame, one row per water supply, with columns
+\code{wsd_source_id}, \code{park_unit}, \code{park_name} and \code{wtd_point_m} (depth to
+the water table in meters).
 }
 \description{
-Extracts modeled water table depth (WTD) at each water supply point from
-the CONUS-wide random forest WTD model. For those points that do not overlap
-with the raster dataset and therefore are NA we assign them the closest
-available raster value within a 50km buffer.
-}
-\details{
-The source raster is stored as full-width LZW-compressed scanline strips
-not tiles — so points are sorted by raster row before extraction to avoid
-re-decompressing the same strip out of sequence, then restored to their
+Reads the modeled water table depth (WTD) at each water supply point from
+the CONUS random forest WTD model. Points with no value (a NoData cell, or
+just outside the raster) get the value of the nearest valid cell. The
+search starts at \code{start_buffer_m} and doubles until it finds one, up to
+\code{max_buffer_m}; points with no valid cell within that stay \code{NA}. The search
+runs in parallel on all but two CPU cores (with
+\link[future:multisession]{future::multisession}), and the future plan is set back to sequential
+afterwards.
+
+The points are read in raster-row order, because the raster is stored in
+full-width strips rather than tiles; the results are put back in the
 original order.
 
-Saves one output:
-\enumerate{
-\item \code{wtd_all_sites.csv} — wsd_source_id, park_unit, park_name, wtd_point_m
-}
-
-Point extraction (rather than a buffer mean) was validated against WSD
-sites with recorded static water levels in
-\code{Explore/explore_groundwater_depth.Rmd} and found to best match the
-published model's own performance metrics.
+Reading the value at the point, rather than a mean over a buffer, matched
+WSD sites with recorded static water levels best (see
+\code{Explore/explore_groundwater_depth.Rmd} in \code{nps_water_vulnerability}).
 
 Citation: Zenodo record 18504963,
-https://ngwa.onlinelibrary.wiley.com/doi/10.1111/gwat.13362
+\url{https://ngwa.onlinelibrary.wiley.com/doi/10.1111/gwat.13362}.
+}
+\examples{
+\dontshow{if (interactive() && file.exists(wavacore::wava_data_path("all", "groundwater_sensitivity", "wtd_mean_estimate_RF_additional_inputs_dummy_drop0LP_1s_CONUS2_m_v_20240813.tif"))) withAutoprint(\{ # examplesIf}
+# The default raster is about 37 GB, so the first read takes a long time
+ws <- wavacore::get_wsd(park = "ZION")
+wtd <- process_groundwater_depth(ws)
+wtd
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_groundwater_depth_sensitivity]{calc_groundwater_depth_sensitivity()}}, which uses
+\code{wtd_all_sites.csv} where a supply has no recorded well depth.
 }

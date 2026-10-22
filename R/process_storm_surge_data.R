@@ -1,51 +1,70 @@
-#' Process Storm Surge Data (Muis 2023, 10-year return period)
+#' @title Prepare the storm surge stations (Muis et al. 2023)
 #'
-#' Reads every RP10 storm surge NetCDF file in `data_dir` for 4 CMIP6
-#' models (CMCC-CM2-VHR4, EC-Earth3P-HR, HadGEM3-GC31-HM, HadGEM3-GC31-HM-SST),
-#' across all available periods and all 3 confidence-interval variants, and
-#' reshapes them into one row per station per model. Every `.nc` file in
-#' `data_dir` is read, so the directory must contain only the `surge` variant
-#' of the CDS download — the `waterlevel` variant (same models/periods/CI
-#' variants, different physical quantity) must not be placed here.
-#' This function does not compute a surge change or select a worst-case model
-#' across the ensemble. Those calculations happen in `calc_storm_surge_exposure()`,
-#' which calls this functions output (GeoPackage) as its input.
+#' @description
+#' Reads every 10-year return period storm surge NetCDF file in `data_dir`
+#' (4 CMIP6 models: CMCC-CM2-VHR4, EC-Earth3P-HR, HadGEM3-GC31-HM and
+#' HadGEM3-GC31-HM-SST; 3 periods; 3 confidence-interval variants) and reshapes
+#' them into one row per station and model. It doesn't calculate a change or
+#' pick a model; [calc_storm_surge_exposure()] and
+#' [calc_storm_surge_sensitivity()] do that from its output.
+#'
+#' The files come from the Copernicus Climate Data Store
+#' (<https://cds.climate.copernicus.eu/datasets/sis-water-level-change-indicators-cmip6>):
+#' variable surge level, derived variable absolute value, product type single
+#' model, statistic 10-year return period, scenario SSP5-8.5 (the only one
+#' available), all 3 confidence intervals (best fit, low bound, high bound)
+#' and all 3 periods: historical (1951-1980), reference (1985-2014, the
+#' baseline for the future change) and future (2021-2050). The function
+#' doesn't check that the reference files are there.
 #'
 #' Source: Muis et al. (2023), "Global Projections of Storm Surges Using
 #' High-Resolution CMIP6 Climate Models", Earth's Future.
-#' Data downloaded from Copernicus Climate Data Store:
-#' https://cds.climate.copernicus.eu/datasets/sis-water-level-change-indicators-cmip6
-#'   - Variable: surge level
-#'   - Derived variable: absolute value
-#'   - Product type: single model
-#'   - Statistic: 10-year return period
-#'   - Confidence interval: all 3 variants are read and kept — best-fit
-#'     (central estimate, `_mean`), low-bound (`_p05`), and high-bound (`_p95`)
-#'   - Periods: `historical` (1951-1980), `reference` (1985-2014, the
-#'     baseline used for computing future change), and `future` (2021-2050) --
-#'     all 3 must be present in `data_dir` for `calc_storm_surge_exposure()`/
-#'     `calc_storm_surge_sensitivity()` downstream; this function does not
-#'     currently validate that `reference` files were actually downloaded
-#'   - Scenario: SSP5-8.5 (the only scenario available in this dataset)
-#'   - Models: all 4 HighResMIP ensemble members, kept separate (not reduced
-#'     to a worst-case model here)
 #'
-#' @param data_dir character, path to a directory containing only the RP10
-#'   `surge` NetCDF files, all periods and CI variants (e.g.
-#'   `data/all/coast_comp_data/storm_surge_muis_2023_RP10/`). Every `.nc` file
-#'   in this directory is read.
-#' @param save logical, whether to save output GeoPackage. Defaults to TRUE.
-#' @param output_dir character, directory path where the GeoPackage will be saved.
-#'   Required when `save = TRUE`. Defaults to `wava_data_path("rapid", "inputs", "storm_surge")`.
-#' @param verbose logical, whether to show progress messages. Defaults to TRUE.
+#' @param data_dir String. The folder with the RP10 `surge` NetCDF files.
+#'   Every `.nc` file in it is read, so it must not also hold the `waterlevel`
+#'   variant of the download (same models and periods, a different quantity).
+#'   The model, period and confidence interval are read from each file name.
+#'   Stops with an error if the folder doesn't exist or has no `.nc` files.
+#'   Required.
+#' @param save Logical. Whether to write the stations to a GeoPackage.
+#'   * `TRUE`: writes `storm_surge_RP10_muis_2023.gpkg` to `output_dir`,
+#'     creating the folder if needed and replacing an existing file. Stops
+#'     with an error if `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
-#' @return sf object (EPSG:4326) of storm surge stations, one row per
-#'   `station_idx` per `model`, with columns `historical_p05`/`historical_mean`/
-#'   `historical_p95` (1951-1980), `reference_p05`/`reference_mean`/`reference_p95`
-#'   (1985-2014), and `future_p05`/`future_mean`/`future_p95` (2021-2050), all
-#'   in meters
+#'   Default: `TRUE`.
+#' @param output_dir String or `NULL`. The folder for the GeoPackage.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
 #'
+#'   Default: `rapid/inputs/storm_surge` in the shared data folder, see
+#'   [wavacore::wava_data_path()].
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints messages for each step, the run time and the path of the
+#'     saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return An sf object of points (CRS 4326), one row per station and model,
+#'   with columns `station_idx`, `model`, `historical_p05`,
+#'   `historical_mean`, `historical_p95` (1951-1980), `reference_p05`,
+#'   `reference_mean`, `reference_p95` (1985-2014), `future_p05`,
+#'   `future_mean`, `future_p95` (2021-2050), `lat` and `lon`. Surge levels
+#'   are in meters; `_mean` is the best fit and `_p05`/`_p95` the low and
+#'   high bounds.
 #' @export
+#' @seealso [calc_storm_surge_exposure()] and
+#'   [calc_storm_surge_sensitivity()], which read the GeoPackage.
+#' @examplesIf dir.exists(wavacore::wava_data_path("all", "coast_comp_data", "storm_surge_muis_2023_RP10"))
+#' # Reshape the NetCDF files without writing the GeoPackage
+#' stations <- process_storm_surge_data(
+#'   data_dir = wavacore::wava_data_path("all", "coast_comp_data", "storm_surge_muis_2023_RP10"),
+#'   save = FALSE
+#' )
+#' table(stations$model)
+
 process_storm_surge_data <- function(data_dir,
                                      save = TRUE,
                                      output_dir = wavacore::wava_data_path("rapid", "inputs", "storm_surge"),

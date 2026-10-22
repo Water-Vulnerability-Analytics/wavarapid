@@ -1,50 +1,97 @@
-#' Summarize LOCA2 climate changes across the projection ensemble
+#' @title Summarize projected LOCA2 climate changes for several variables
 #'
-#' Calculates site-level changes for AET, PET, runoff, snow, storage,
-#' precipitation, and temperature for one or more future periods relative to a
-#' common historical period. Changes are calculated separately for each
-#' GCMxSSP projection and then summarized using the ensemble minimum, 10th
-#' percentile, median, 90th percentile, and maximum.
+#' @description
+#' Calculates, for each water supply, the projected change in AET, PET,
+#' runoff, snow, soil storage, precipitation and temperature for one or more
+#' future periods, relative to one historical period. Changes are calculated
+#' for each model run (model, scenario and ensemble member) and then
+#' summarized across the ensemble with the minimum, 10th percentile, median,
+#' 90th percentile and maximum. These are the ensemble quantiles themselves,
+#' not the nearest model run as in the indicator functions.
 #'
-#' Monthly grid-cell values follow the shared MWBM missing-data rule: every
-#' finite cell in the extracted neighborhood is used and the site-month is
-#' `NA` only when all cells are missing. `process_loca2_mwbm(...,
-#' grab_nearest = TRUE)` should be used upstream when the nearest valid-cell
-#' fallback is desired.
+#' Monthly values are averaged over each site's grid cells; a site-month is
+#' `NA` only when every cell is missing. Use `process_loca2_mwbm(...,
+#' grab_nearest = TRUE)` upstream to fill sites with no data from the nearest
+#' valid cell. AET, PET, runoff and precipitation are summed to annual
+#' totals; snow uses the annual peak SWE; storage and temperature use annual
+#' means. Changes are percentages, except temperature, which is in degrees C.
 #'
-#' AET, PET, runoff, and precipitation are summed to annual totals. Snow is
-#' represented by annual peak SWE, while storage and temperature use annual
-#' means. Ensemble changes are percent changes for all variables except
-#' temperature, which uses absolute change in degrees C.
+#' @param water_supplies sf object. The water supplies, with `wsd_source_id`
+#'   and `park_unit` columns, e.g. from [wavacore::get_wsd()]. Every supply
+#'   gets a row for each variable and period, `NA` when there is no data.
+#'   Required.
+#' @param data_dirs Named character vector or named list. The folder of
+#'   processed parquet files for each variable, named `aet`, `pet`, `runoff`,
+#'   `snow`, `stor`, `precip` and `temp`. Stops with an error if a requested
+#'   variable has no folder or files. Default: the
+#'   `rapid/inputs/loca2_*_water_supplies` folders in the shared data folder,
+#'   see [wavacore::wava_data_path()].
+#' @param variables Character vector. The variables to calculate, from the
+#'   names above (any case). Stops with an error for an unknown name. Default:
+#'   `names(data_dirs)`, all of them.
+#' @param hindcast Logical. Where the historical period comes from.
+#'   * `TRUE`: each model's own historical run, paired with its future
+#'     scenario runs. Training files are not read.
+#'   * `FALSE`: the LOCA2 training record, the same baseline for every model
+#'     (the consolidated Jay Alder training file is used when it exists
+#'     instead of older Livneh or LUSU files).
 #'
-#' @param water_supplies An `sf` object containing `wsd_source_id` and
-#'   `park_unit`.
-#' @param data_dirs Named character vector or list giving the processed parquet
-#'   directory for each variable. Supported names are `aet`, `pet`, `runoff`,
-#'   `snow`, `stor`, `precip`, and `temp`.
-#' @param variables Character vector of variables to calculate. Defaults to all
-#'   supported variables.
-#' @param hindcast Logical. If `TRUE`, each GCM's historical run is paired with
-#'   its future SSP run. If `FALSE`, the common LOCA2 training record is used as
-#'   the historical baseline. Defaults to `TRUE`.
-#' @param historical Two-element vector giving the historical start and end
-#'   years. Defaults to `c(1980, 2010)`.
-#' @param futures Named list of two-element future periods. Defaults to
+#'   Default: `TRUE`.
+#' @param historical Numeric or character vector of 2 years. The first and
+#'   last year of the historical period. Default: `c(1980, 2010)`.
+#' @param futures Named list of 2-year vectors. The future periods; each
+#'   name becomes the `period` label in the output, and unnamed periods are
+#'   called `future_1`, `future_2`, and so on. Default:
 #'   `list(mid_century = c(2035, 2065), late_century = c(2070, 2100))`.
-#' @param water_year Logical. If `TRUE`, annual values use Oct-Sep water years;
-#'   otherwise calendar years are used. Defaults to `TRUE`.
-#' @param save Logical. Save the summary as a CSV file?
-#' @param output_dir Output directory used when `save = TRUE`.
-#' @param verbose Logical. Print progress messages?
+#' @param water_year Logical. How months are grouped into years.
+#'   * `TRUE`: water years, October to September, labelled by the year they
+#'     end in.
+#'   * `FALSE`: calendar years.
 #'
-#' @return A tibble with one row per water supply, variable, and future period.
-#'   `raw_historical_value` and `raw_future_value` are the ensemble means of
-#'   the paired historical and future period climatologies. `change_min`,
-#'   `change_p10`, `change_p50`, `change_p90`, and `change_max` summarize the
-#'   GCM/SSP changes. `change_units` identifies whether the changes are
-#'   percent or degrees C.
+#'   Default: `TRUE`.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `loca2_climate_change_summary_<date>.csv`, named with
+#'     today's date, to `output_dir`, creating the folder if needed. Stops
+#'     with an error if `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints each variable and its number of files, the run time and
+#'     the path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, variable and future period,
+#'   with `wsd_source_id`, `park_unit`, `variable`, `period`,
+#'   `historical_period`, `future_period`, `change_units` (`"percent"` or
+#'   `"degrees_C"`), `raw_historical_value` and `raw_future_value` (ensemble
+#'   means of the two period averages), `change_min`, `change_p10`,
+#'   `change_p50`, `change_p90`, `change_max`, and `n_projections` (the
+#'   number of model runs with a finite change).
 #' @export
+#' @seealso [process_loca2_mwbm()], which makes the input files;
+#'   [calc_runoff_exposure()], [calc_precip_exposure()],
+#'   [calc_swe_exposure()] and [calc_temp_exposure()] for the indicator
+#'   versions.
+#' @examplesIf interactive() && dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_runoff_water_supplies"))
+#' # Reads every processed file for the chosen variables (several GB each),
+#' # so it takes a long time
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' summary_mid <- calc_loca2_change_summary(
+#'   ws,
+#'   variables = c("runoff", "temp"),
+#'   futures = list(mid_century = c(2035, 2065))
+#' )
+#' summary_mid
+
 calc_loca2_change_summary <- function(water_supplies,
                                       data_dirs = c(aet = wavacore::wava_data_path("rapid", "inputs", "loca2_aet_water_supplies/"),
                                                     pet = wavacore::wava_data_path("rapid", "inputs", "loca2_pet_water_supplies/"),

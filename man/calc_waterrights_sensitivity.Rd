@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_waterrights_sensitivity.R
 \name{calc_waterrights_sensitivity}
 \alias{calc_waterrights_sensitivity}
-\title{Calculate Water Rights Sensitivity Indicator}
+\title{Water rights sensitivity: current water stress (Aqueduct 4.0)}
 \usage{
 calc_waterrights_sensitivity(
   water_supplies,
@@ -14,57 +14,98 @@ calc_waterrights_sensitivity(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with water supply point locations, used to
-verify that \code{stress_data} covers the same set of \code{wsd_source_id} values.}
+\item{water_supplies}{sf object. The water supplies, with a
+\code{wsd_source_id} column. Only used as a check: the function stops with an
+error if the \code{wsd_source_id}s in \code{stress_data} are not exactly the same
+set, which catches a stress table made from a different or older list
+of supplies. Required.}
 
-\item{stress_data}{character path to \code{waterrights_stress_long.csv} (output of
-\code{process_waterrightsindicator_data()}), or a data.frame with the same
-columns. Must include \code{wsd_source_id}, \code{park_unit}, \code{park_name}, \code{period},
-\code{stress_score}, and \code{stress_label}.}
+\item{stress_data}{String or data frame. The long water stress table from
+\code{\link[=process_waterrightsindicator_data]{process_waterrightsindicator_data()}}, with columns \code{wsd_source_id},
+\code{park_unit}, \code{park_name}, \code{period}, \code{stress_score} and \code{stress_label}.
+Only the \code{period == "baseline"} rows are used.
+\itemize{
+\item String: path to \code{waterrights_stress_long.csv}. Stops with an error if
+the file doesn't exist.
+\item Data frame: the same table, already read.
+}
 
-\item{save}{logical, whether to save output. Default is \code{FALSE}.}
+Default: \code{rapid/inputs/WaterRightsIndicator/waterrights_stress_long.csv}
+in the shared data folder, see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{output_dir}{character, directory path for saving files. Required if
-\code{save = TRUE}.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{waterrights_sensitivity_<date>.csv}, named with today's date, to
+\code{output_dir}, creating the folder if needed. Stops with an error if
+\code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{verbose}{logical, whether to show progress messages. Default is \code{TRUE}.}
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints each step, the run time and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble with one row per water supply: \code{wsd_source_id}, \code{park_unit},
-\code{park_name}, \code{water_stress_label} (Aqueduct category), and raw/norm/rank
-columns for \code{raw_water_stress} (baseline score 0-5, not inverted)
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit}, \code{park_name}, \code{water_stress_label} (the Aqueduct category),
+\code{raw_water_stress} (baseline score, 0-5) and its \code{norm_} and \code{rank_}
+versions from \code{\link[=add_standardized_indicators]{add_standardized_indicators()}}. Higher stress gets a
+higher score.
 }
 \description{
-Calculates water rights sensitivity from Aqueduct 4.0 baseline (1979-2019)
-water stress for the HydroBASINS Level 6 sub-basin containing each NPS water
-supply. Requires the long stress table produced by
-\code{process_waterrightsindicator_data()}.
-}
-\details{
-Sensitivity is how constrained a water system already is. Water stress is the
-ratio of total withdrawals (domestic, industrial, irrigation, livestock) to
-the renewable blue water available in the sub-basin, so a high score means
-many users are already competing for the same water. Competition is the
-condition under which water rights administration becomes binding: where
-supply is ample a park's legal right is rarely tested, and where competition
-is high the governing doctrine determines whether it can divert its full
-entitlement.
+Gives each water supply the baseline (1979-2019) Aqueduct 4.0 water stress
+score of the HydroBASINS level 6 sub-basin it is in, from the table made
+by \code{\link[=process_waterrightsindicator_data]{process_waterrightsindicator_data()}}.
 
-The Aqueduct score (0-5) is used rather than the raw withdrawal ratio. The
-score is a log-normalized rescaling of the same trend signal, carries
-published category thresholds that apply consistently across baseline and
-future scenarios, and is better distributed than the raw ratio, which is
-unbounded, heavily right-skewed, and uses a 9999 sentinel for arid basins.
+Water stress is total withdrawals (domestic, industrial, irrigation,
+livestock) divided by the renewable water available, so a high score
+means many users already compete for the same water. That is when water
+rights administration starts to bind: where water is plentiful a park's
+right is rarely tested, and where competition is high the state's doctrine
+decides whether it can divert its full entitlement.
 
-Higher stress = higher sensitivity, so \code{invert = FALSE} is used when
-standardizing. A score of 5 covers both "Extremely High (>80\%)" and "Arid and
-Low Water Use"; Aqueduct treats both as top priority.
-
-\code{water_supplies} is used only as a check: the function stops if the distinct
-\code{wsd_source_id} values in \code{stress_data} are not the same set as those in
-\code{water_supplies}, which catches a stress table built from a different (or
-stale) supply list.
+The score (0-5) is used rather than the raw ratio: it is a log-normalized
+version of the same signal, has published category thresholds that apply
+to both baseline and future, and is better distributed than the raw ratio
+(unbounded, right-skewed, and 9999 for arid basins). A score of 5 covers
+both "Extremely High (>80\%)" and "Arid and Low Water Use", which Aqueduct
+treats as the top priority.
 
 Citation: Kuzma, S. et al. (2023) Aqueduct 4.0: Updated decision-relevant
 global water risk indicators. World Resources Institute.
+}
+\examples{
+\dontshow{if (file.exists(wavacore::wava_data_path("rapid", "inputs", "WaterRightsIndicator", "waterrights_stress_long.csv"))) withAutoprint(\{ # examplesIf}
+# The stress table and water_supplies must cover the same supplies, so
+# keep the same ones in both
+stress <- readr::read_csv(wavacore::wava_data_path("rapid", "inputs",
+                                                   "WaterRightsIndicator",
+                                                   "waterrights_stress_long.csv"),
+                          show_col_types = FALSE)
+ws <- wavacore::get_wsd(park = "ZION")
+ws <- ws[ws$wsd_source_id \%in\% stress$wsd_source_id, ]
+stress <- stress[stress$wsd_source_id \%in\% ws$wsd_source_id, ]
+
+wr_sen <- calc_waterrights_sensitivity(ws, stress_data = stress)
+wr_sen
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_waterrights_exposure]{calc_waterrights_exposure()}} for the projected stress;
+\code{\link[=process_waterrightsindicator_data]{process_waterrightsindicator_data()}}, which makes \code{stress_data}.
 }

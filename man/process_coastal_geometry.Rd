@@ -2,7 +2,7 @@
 % Please edit documentation in R/process_coastal_geometry.R
 \name{process_coastal_geometry}
 \alias{process_coastal_geometry}
-\title{Process Coastal Geometry}
+\title{Distance to the coast and elevation of each water supply}
 \usage{
 process_coastal_geometry(
   water_supplies,
@@ -15,46 +15,90 @@ process_coastal_geometry(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with water supply point locations}
+\item{water_supplies}{sf object. The water supplies, as points with
+\code{wsd_source_id}, \code{park_unit} and \code{park_name} columns, e.g. from
+\code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Stops with an error if a column is missing.
+Required.}
 
-\item{cusp_dir_path}{character, path to directory containing CUSP tile
-subfolders. The combined cusp_shorelines.gpkg is also cached here.}
+\item{cusp_dir_path}{String. The folder with the CUSP tile subfolders;
+every \code{.shp} file below it is read. Stops with an error if the folder
+doesn't exist or has no shapefiles. With \code{save = TRUE}, the combined
+shoreline is also written here. Default: \code{all/coast_comp_data/NOAA_CUSP}
+in the shared data folder, see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{ncpu}{numeric, number of parallel workers used by
-\code{elevatr::get_elev_point()} for the elevation query. Defaults to 6.}
+\item{ncpu}{Integer. The number of parallel workers for the elevation
+queries. Default: \code{6}.}
 
-\item{max_coast_dist_m}{numeric, maximum distance (m) from the coast a
-water supply can be to receive a non-NA \code{coast_dist_m} / \code{coast_elev_m}.
-Defaults to 50000 (50 km).}
+\item{max_coast_dist_m}{Numeric. The largest distance from the coast, in
+meters, at which a supply counts as coastal.
+\itemize{
+\item Supplies within it get \code{coast_dist_m} and an elevation.
+\item Supplies beyond it get \code{NA} for both and are not sent to the elevation
+service.
+}
 
-\item{save}{logical, whether to save output files. Defaults to TRUE.}
+Default: \code{50000} (50 km).}
 
-\item{output_dir}{character, directory path for saving
-coastal_site_geometry.csv. Required when \code{save = TRUE}.}
+\item{save}{Logical. Whether to write the results.
+\itemize{
+\item \code{TRUE}: writes \code{coastal_site_geometry.csv} to \code{output_dir} (creating
+the folder if needed) and the combined shoreline,
+\code{cusp_shorelines.gpkg}, to \code{cusp_dir_path}. Both replace existing
+files. Stops with an error if \code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{verbose}{logical, whether to show progress messages.}
+Default: \code{TRUE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for
+\code{coastal_site_geometry.csv}.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{rapid/inputs/coast_comp} in the shared data folder, which is
+where the coastal indicator functions look for it.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints messages for each step, the run time and the paths of
+the saved files.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble (geometry dropped) with wsd_source_id, park_unit,
-park_name, coast_dist_m, coast_elev_m.
+A tibble (no geometry), one row per water supply, with columns
+\code{wsd_source_id}, \code{park_unit}, \code{park_name}, \code{coast_dist_m} (meters to the
+nearest shoreline) and \code{coast_elev_m} (elevation in meters).
 }
 \description{
-Combines the raw NOAA CUSP shoreline tiles into a single shoreline layer,
-then computes distance to the nearest CUSP shoreline feature for each NPS
-water supply. Water supplies farther than \code{max_coast_dist_m} (50 km) from the
-coast receive \code{coast_dist_m = NA} and are dropped from the elevation
-query entirely. This means those elevations also receive \code{coast_elev_m = NA}.
-Any downstream function that computes a weight from \code{coast_dist_m} and/or
-\code{coast_elev_m} (e.g. \code{calc_storm_surge_exposure()}, \code{calc_storm_surge_sensitivity()},
-\code{calc_swi_exposure()}, \code{calc_inundation_exposure()}) will therefore also
-return NA for these non-coastal water supplies.
-}
-\details{
-Elevation for the remaining coastal supplies is queried point-by-point
-from the USGS Elevation Point Query Service (EPQS) via
-\code{elevatr::get_elev_point()}.
+Combines the NOAA CUSP shoreline tiles into one shoreline layer and finds
+the distance from each water supply to the nearest shoreline feature. For
+supplies within \code{max_coast_dist_m} of the coast it then gets the elevation
+from the USGS Elevation Point Query Service (EPQS), through
+\code{\link[elevatr:get_elev_point]{elevatr::get_elev_point()}}, so it needs internet.
 
-When saved, writes coastal_site_geometry.csv (to \code{output_dir}) with
-distance + elevation, and cusp_shorelines.gpkg (the combined shoreline
-layer, cached alongside the raw tiles in \code{cusp_dir_path}).
+Supplies farther than \code{max_coast_dist_m} get \code{NA} for both distance and
+elevation. The coastal indicators that read this table
+(\code{\link[=calc_storm_surge_exposure]{calc_storm_surge_exposure()}}, \code{\link[=calc_storm_surge_sensitivity]{calc_storm_surge_sensitivity()}},
+\code{\link[=calc_swi_exposure]{calc_swi_exposure()}} and \code{\link[=calc_inundation_exposure]{calc_inundation_exposure()}}) give those supplies
+\code{NA}.
+}
+\examples{
+\dontshow{if (interactive() && dir.exists(wavacore::wava_data_path("all", "coast_comp_data", "NOAA_CUSP"))) withAutoprint(\{ # examplesIf}
+# Reads every CUSP shoreline tile (about 3 GB) and queries the USGS
+# elevation service, so it needs internet and takes several minutes
+ws <- wavacore::get_wsd(park = "BISC")
+geometry <- process_coastal_geometry(ws, save = FALSE)
+geometry
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_storm_surge_exposure]{calc_storm_surge_exposure()}}, \code{\link[=calc_storm_surge_sensitivity]{calc_storm_surge_sensitivity()}},
+\code{\link[=calc_swi_exposure]{calc_swi_exposure()}} and \code{\link[=calc_inundation_exposure]{calc_inundation_exposure()}}, which read
+\code{coastal_site_geometry.csv}.
 }

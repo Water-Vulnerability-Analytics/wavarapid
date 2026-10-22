@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_loca2_change_summary.R
 \name{calc_loca2_change_summary}
 \alias{calc_loca2_change_summary}
-\title{Summarize LOCA2 climate changes across the projection ensemble}
+\title{Summarize projected LOCA2 climate changes for several variables}
 \usage{
 calc_loca2_change_summary(
   water_supplies,
@@ -26,58 +26,118 @@ calc_loca2_change_summary(
 )
 }
 \arguments{
-\item{water_supplies}{An \code{sf} object containing \code{wsd_source_id} and
-\code{park_unit}.}
+\item{water_supplies}{sf object. The water supplies, with \code{wsd_source_id}
+and \code{park_unit} columns, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Every supply
+gets a row for each variable and period, \code{NA} when there is no data.
+Required.}
 
-\item{data_dirs}{Named character vector or list giving the processed parquet
-directory for each variable. Supported names are \code{aet}, \code{pet}, \code{runoff},
-\code{snow}, \code{stor}, \code{precip}, and \code{temp}.}
+\item{data_dirs}{Named character vector or named list. The folder of
+processed parquet files for each variable, named \code{aet}, \code{pet}, \code{runoff},
+\code{snow}, \code{stor}, \code{precip} and \code{temp}. Stops with an error if a requested
+variable has no folder or files. Default: the
+\verb{rapid/inputs/loca2_*_water_supplies} folders in the shared data folder,
+see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{variables}{Character vector of variables to calculate. Defaults to all
-supported variables.}
+\item{variables}{Character vector. The variables to calculate, from the
+names above (any case). Stops with an error for an unknown name. Default:
+\code{names(data_dirs)}, all of them.}
 
-\item{hindcast}{Logical. If \code{TRUE}, each GCM's historical run is paired with
-its future SSP run. If \code{FALSE}, the common LOCA2 training record is used as
-the historical baseline. Defaults to \code{TRUE}.}
+\item{hindcast}{Logical. Where the historical period comes from.
+\itemize{
+\item \code{TRUE}: each model's own historical run, paired with its future
+scenario runs. Training files are not read.
+\item \code{FALSE}: the LOCA2 training record, the same baseline for every model
+(the consolidated Jay Alder training file is used when it exists
+instead of older Livneh or LUSU files).
+}
 
-\item{historical}{Two-element vector giving the historical start and end
-years. Defaults to \code{c(1980, 2010)}.}
+Default: \code{TRUE}.}
 
-\item{futures}{Named list of two-element future periods. Defaults to
+\item{historical}{Numeric or character vector of 2 years. The first and
+last year of the historical period. Default: \code{c(1980, 2010)}.}
+
+\item{futures}{Named list of 2-year vectors. The future periods; each
+name becomes the \code{period} label in the output, and unnamed periods are
+called \code{future_1}, \code{future_2}, and so on. Default:
 \code{list(mid_century = c(2035, 2065), late_century = c(2070, 2100))}.}
 
-\item{water_year}{Logical. If \code{TRUE}, annual values use Oct-Sep water years;
-otherwise calendar years are used. Defaults to \code{TRUE}.}
+\item{water_year}{Logical. How months are grouped into years.
+\itemize{
+\item \code{TRUE}: water years, October to September, labelled by the year they
+end in.
+\item \code{FALSE}: calendar years.
+}
 
-\item{save}{Logical. Save the summary as a CSV file?}
+Default: \code{TRUE}.}
 
-\item{output_dir}{Output directory used when \code{save = TRUE}.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{loca2_climate_change_summary_<date>.csv}, named with
+today's date, to \code{output_dir}, creating the folder if needed. Stops
+with an error if \code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{verbose}{Logical. Print progress messages?}
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints each variable and its number of files, the run time and
+the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-A tibble with one row per water supply, variable, and future period.
-\code{raw_historical_value} and \code{raw_future_value} are the ensemble means of
-the paired historical and future period climatologies. \code{change_min},
-\code{change_p10}, \code{change_p50}, \code{change_p90}, and \code{change_max} summarize the
-GCM/SSP changes. \code{change_units} identifies whether the changes are
-percent or degrees C.
+A tibble, one row per water supply, variable and future period,
+with \code{wsd_source_id}, \code{park_unit}, \code{variable}, \code{period},
+\code{historical_period}, \code{future_period}, \code{change_units} (\code{"percent"} or
+\code{"degrees_C"}), \code{raw_historical_value} and \code{raw_future_value} (ensemble
+means of the two period averages), \code{change_min}, \code{change_p10},
+\code{change_p50}, \code{change_p90}, \code{change_max}, and \code{n_projections} (the
+number of model runs with a finite change).
 }
 \description{
-Calculates site-level changes for AET, PET, runoff, snow, storage,
-precipitation, and temperature for one or more future periods relative to a
-common historical period. Changes are calculated separately for each
-GCMxSSP projection and then summarized using the ensemble minimum, 10th
-percentile, median, 90th percentile, and maximum.
-}
-\details{
-Monthly grid-cell values follow the shared MWBM missing-data rule: every
-finite cell in the extracted neighborhood is used and the site-month is
-\code{NA} only when all cells are missing. \code{process_loca2_mwbm(..., grab_nearest = TRUE)} should be used upstream when the nearest valid-cell
-fallback is desired.
+Calculates, for each water supply, the projected change in AET, PET,
+runoff, snow, soil storage, precipitation and temperature for one or more
+future periods, relative to one historical period. Changes are calculated
+for each model run (model, scenario and ensemble member) and then
+summarized across the ensemble with the minimum, 10th percentile, median,
+90th percentile and maximum. These are the ensemble quantiles themselves,
+not the nearest model run as in the indicator functions.
 
-AET, PET, runoff, and precipitation are summed to annual totals. Snow is
-represented by annual peak SWE, while storage and temperature use annual
-means. Ensemble changes are percent changes for all variables except
-temperature, which uses absolute change in degrees C.
+Monthly values are averaged over each site's grid cells; a site-month is
+\code{NA} only when every cell is missing. Use \code{process_loca2_mwbm(..., grab_nearest = TRUE)} upstream to fill sites with no data from the nearest
+valid cell. AET, PET, runoff and precipitation are summed to annual
+totals; snow uses the annual peak SWE; storage and temperature use annual
+means. Changes are percentages, except temperature, which is in degrees C.
+}
+\examples{
+\dontshow{if (interactive() && dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_runoff_water_supplies"))) withAutoprint(\{ # examplesIf}
+# Reads every processed file for the chosen variables (several GB each),
+# so it takes a long time
+ws <- wavacore::get_wsd(park = "ZION")
+summary_mid <- calc_loca2_change_summary(
+  ws,
+  variables = c("runoff", "temp"),
+  futures = list(mid_century = c(2035, 2065))
+)
+summary_mid
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}, which makes the input files;
+\code{\link[=calc_runoff_exposure]{calc_runoff_exposure()}}, \code{\link[=calc_precip_exposure]{calc_precip_exposure()}},
+\code{\link[=calc_swe_exposure]{calc_swe_exposure()}} and \code{\link[=calc_temp_exposure]{calc_temp_exposure()}} for the indicator
+versions.
 }

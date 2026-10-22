@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_flood_risk.R
 \name{calc_flood_risk}
 \alias{calc_flood_risk}
-\title{Calculate Flood Sensitivity Indicator}
+\title{Flood sensitivity: area in high-risk FEMA flood zones}
 \usage{
 calc_flood_risk(
   data,
@@ -13,25 +13,83 @@ calc_flood_risk(
 )
 }
 \arguments{
-\item{data}{sf object with water supply locations}
+\item{data}{sf object. The water supplies, as points with \code{wsd_source_id},
+\code{park_unit} and \code{park_name} columns, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}.
+Required.}
 
-\item{dist}{distance (in meters) of point buffer}
+\item{dist}{Numeric. The buffer radius in meters, applied in UTM zone 16N
+(EPSG 32616).
+\itemize{
+\item A positive distance, e.g. \code{4000} as in the rapid workflow: the
+flood zones inside that circle are measured.
+\item \code{0}: buffers the points to empty polygons, so the queries can't work
+and every supply gets \code{NA}.
+}
 
-\item{save}{logical, whether to save output}
+Default: \code{0}.}
 
-\item{output_dir}{character, directory path for saving files}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{flood_sensitivity_<date>.csv}, named with today's
+date, to \code{output_dir}, creating the folder if needed. Stops with an
+error if \code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{verbose}{logical, whether to show progress messages}
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: shows a progress bar over the water supplies, a message for
+each failed request, and the run time and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble with water supply ID, park info, and flood sensitivity indicators. Returns 'NA' where FEMA data is not
-available, and 0 when it is available but there are no high risk flood zones in the buffer.
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{raw_flood_risk_area_m2} (area of high-risk zones in the buffer, square
+meters), \code{raw_flood_risk_percent} (percentage of the buffer),
+\code{park_unit}, \code{park_name}, and the \code{norm_} and \code{rank_} versions of the
+two \code{raw_} columns from \code{\link[=add_standardized_indicators]{add_standardized_indicators()}}.
 }
 \description{
-Calculates flood sensitivity using current FEMA flood zone maps. Returns total area and \% cover of
-high risk flood zones (those with A or V categories) within water supply buffer. This indicates
-a 1\% annual chance of flooding.
+Calculates how much of the area around each water supply is in a
+high-risk flood zone (FEMA zones starting with A or V, the 1\% annual
+chance floodplain). Each water supply is buffered by \code{dist} meters, and
+the FEMA National Flood Hazard Layer is queried over the buffer's
+bounding box, one request per supply, from
+\url{https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer}. It
+needs internet, and a national run takes hours.
+
+A supply gets:
+\itemize{
+\item \code{NA} when the request fails or FEMA returns no flood mapping there;
+\item \code{0} when there is mapping but no high-risk zone in the buffer;
+\item otherwise, the area and percentage of the buffer in high-risk zones.
 }
-\details{
-Pulls from FEMA WMS endpoint at: https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer
+
+If a \code{wsd_source_id} has several rows, their values are averaged.
+}
+\examples{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
+# Queries the FEMA flood map service, so it needs internet
+ws <- wavacore::get_wsd(park = "ZION")
+flood_sen <- calc_flood_risk(ws, dist = 4000)
+flood_sen
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_vulnerability_index]{calc_vulnerability_index()}}, which uses the percentage as
+\code{sen_flood_risk}.
 }

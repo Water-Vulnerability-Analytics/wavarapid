@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_precip_sensitivity.R
 \name{calc_precip_sensitivity}
 \alias{calc_precip_sensitivity}
-\title{Calculate Historical Precipitation Sensitivity Indicator}
+\title{Precipitation sensitivity: historical trend in annual precipitation}
 \usage{
 calc_precip_sensitivity(
   water_supplies,
@@ -16,30 +16,91 @@ calc_precip_sensitivity(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with water supply locations.}
+\item{water_supplies}{sf object. The water supplies, with a
+\code{wsd_source_id} column, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Only their IDs
+are used, to pick rows from the processed file. Required.}
 
-\item{precip_data}{character, directory containing processed LOCA2 MWBM precip files.
-Defaults to \code{wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/")}.}
+\item{precip_data}{String. The folder of processed precipitation parquet
+files from \code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}. Only the Jay Alder training file is
+read; stops with an error if there isn't one. Default:
+\code{rapid/inputs/loca2_precipitation_water_supplies} in the shared data
+folder,
+see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{historical}{Character vector of length 2 giving the start and end years
-(in \code{"YYYY"} format) that define the historical period.}
+\item{historical}{Character or numeric vector of 2 years, e.g.
+\code{c(1980, 2010)}. The first and last year of the trend period. The
+training run covers 1950-2014. Required.}
 
-\item{water_year}{T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.}
+\item{water_year}{Logical. How months are grouped into years.
+\itemize{
+\item \code{TRUE}: water years, October to September, labelled by the year they
+end in.
+\item \code{FALSE}: calendar years.
+}
 
-\item{save}{logical, whether to save output. Default is \code{FALSE}.}
+Default: \code{TRUE}.}
 
-\item{output_dir}{character, directory path for saving files. Required if
-\code{save = TRUE}.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{precip_sensitivity_<date>.csv}, named with today's
+date, to \code{output_dir}, creating the folder if needed. Stops with an
+error if \code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{verbose}{logical, whether to show progress messages. Default is \code{TRUE}.}
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: shows a progress bar and messages with the run time and the
+path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble with one row per water supply and historical precip sensitivity
-indicators.
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit} and:
+\itemize{
+\item \code{raw_avg_precip}: mean annual precipitation (mm);
+\item \code{raw_slope_precip}: Sen's slope (mm per year);
+\item \code{raw_percent_slope_precip}: the slope as a percentage of the mean
+(\% per year);
+\item \code{n_years}, \code{mk_significant} (Mann-Kendall p < 0.05) and
+\code{trend_direction} (\code{"increasing"}, \code{"decreasing"} or \code{"no change"});
+\item \verb{norm_*} and \verb{rank_*} versions of the three \verb{raw_*} columns from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}. All three are inverted, so lower or
+more steeply declining precipitation gets a higher score.
+}
 }
 \description{
-Calculates a historical precip sensitivity indicator from processed LOCA2 MWBM
-precip data using only the true historical precip time series. Annual precip is
-aggregated from grid cells and used to estimate historical precip trends with
-Sen's slope and the Mann-Kendall test for each water supply.
+Calculates the historical trend in annual precipitation at each water
+supply from the Jay Alder MWBM training run (the file in \code{precip_data}
+with "jay_alder" in its name, lowercase). Monthly precipitation is
+averaged over each site's grid cells and summed to annual totals. The
+trend is Sen's slope (\code{\link[trend:sens.slope]{trend::sens.slope()}}), tested with Mann-Kendall
+(\code{\link[trend:mk.test]{trend::mk.test()}}); sites with fewer than 3 years get \code{NA}.
+}
+\examples{
+\dontshow{if (file.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies", "jay_alder_pr_MWBM_LOCA2_training_195001-201412.nc.parquet"))) withAutoprint(\{ # examplesIf}
+ws <- wavacore::get_wsd(park = "ZION")
+precip_sen <- calc_precip_sensitivity(ws, historical = c(1980, 2010))
+precip_sen[, c("wsd_source_id", "raw_avg_precip", "raw_percent_slope_precip",
+               "trend_direction")]
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_precip_exposure]{calc_precip_exposure()}} for the projected change;
+\code{\link[=calc_drought_sensitivity]{calc_drought_sensitivity()}}, which uses the same training file;
+\code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}, which makes the input files.
 }

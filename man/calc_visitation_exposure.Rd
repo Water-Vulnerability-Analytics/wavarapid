@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_visitation_exposure.R
 \name{calc_visitation_exposure}
 \alias{calc_visitation_exposure}
-\title{Calculate visitation-based exposure indicators for park water supplies}
+\title{Visitation exposure: projected change in park visitation to 2050}
 \usage{
 calc_visitation_exposure(
   water_supplies,
@@ -15,44 +15,98 @@ calc_visitation_exposure(
 )
 }
 \arguments{
-\item{water_supplies}{A data frame containing at least a \code{park_unit} column, representing
-unique park identifiers for which visitation exposure indicators will be calculated.}
+\item{water_supplies}{Data frame or sf object. The water supplies, with a
+\code{park_unit} column, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. One request is made
+per park unit, and the results are joined back onto these rows.
+Required.}
 
-\item{start_year}{Numeric. First year of visitation data to request.}
+\item{start_year}{Integer. The first year of visitation to request and
+fit. It also sets the short-record test (see Description). Default:
+\code{1990}.}
 
-\item{baseline_growth_rate}{Default growth rate to set to if actual growth
-rate per park is either below it, negative, not enough data, or for parks with timed entry.}
+\item{baseline_growth_rate}{Numeric. The yearly growth, as a fraction of
+the 2024 value, used for parks that get the baseline slope. Default:
+\code{0.0087} (0.87\% a year, the long-term NPS system-wide trend).}
 
-\item{baseline_seasonality_shift}{Numeric. A dampening factor (0-1) applied to the
-coefficient of variation (CV) trend for parks using baseline growth adjustments.
-For example, if 0.25, this means that the seasonality trend is reduced to 25\% of the observed rate.
-Lower values assume parks with constrained growth (timed entry, negative trends, or
-insufficient data) will experience minimal changes in visitation seasonality patterns.
-This is still a WIP!}
+\item{baseline_seasonality_shift}{Numeric from 0 to 1. How much of the
+seasonality trend parks on the baseline slope keep.
+\itemize{
+\item \code{1}: they keep their observed seasonality trend (no change).
+\item Less than 1, e.g. \code{0.25}: their seasonality trend is cut to that
+fraction, assuming parks with limited growth see little change in
+seasonality.
+}
 
-\item{save}{Logical. If \code{TRUE}, results are saved to a file in \code{output_dir}.
-Defaults to \code{FALSE}.}
+Still being worked out. Default: \code{1}.}
 
-\item{output_dir}{Optional character string specifying the directory where results
-will be saved if \code{save = TRUE}. Ignored otherwise.}
+\item{save}{Logical. Not used yet: the function never writes a file,
+whatever this is. Default: \code{FALSE}.}
 
-\item{verbose}{Logical. If \code{TRUE}, progress messages are printed to the console.
-Defaults to \code{TRUE}.}
+\item{output_dir}{String or \code{NULL}. Not used yet, as for \code{save}.
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints how many parks were calculated and which parks got the
+baseline slope and why.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-A tibble combining the original \code{water_supplies} data with visitation exposure indicators.
+\code{water_supplies} (with its class and columns) with these columns
+joined on by \code{park_unit}: \code{pred_2050}, \code{obs_2024}, \code{peak_year},
+\code{raw_visitation_pct_change}, \code{raw_visitation_cv_change},
+\code{n_months_analyzed}, \code{time_range}, \code{timed_entry_year},
+\code{has_timed_entry}, \code{original_slope}, \code{projection_slope},
+\code{slope_adjustment} (\code{"none"}, \code{"baseline_insufficient_data"},
+\code{"baseline_negative"}, \code{"baseline_timed_entry"} or
+\code{"trend_below_baseline"}), \code{baseline_slope}, \code{negative_trend}, and the
+\code{norm_} and \code{rank_} versions of the two \code{raw_} columns from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}.
 }
 \description{
-This function computes visitation-related exposure indicators for a set of park units
-based on annual and seasonal visitation trends. It uses NPS visitation data to estimate
-historical visitation patterns, trends, and projected changes through 2050.
-}
-\details{
-For parks with timed entry systems, negative trends, or insufficient data (< 14 years of
-monthly records available), a minimum baseline growth rate is applied based on long-term
-NPS system-wide trends. This reflects that these parks are unlikely to experience
-unconstrained historical growth patterns or do not have enough information to support
-stable trend estimation.
+Projects annual recreation visits and the seasonality of visits for each
+park unit in \code{water_supplies} to 2050, from the NPS visitation statistics
+API through \code{\link[wavacore:getUnitVisitation]{wavacore::getUnitVisitation()}}, so it needs internet. A few
+WSD codes are looked up under a different visitation code (ANAC and NACE
+as NCPE, NAMA as NCPC, VALR as PERL); the output keeps the WSD code.
 
-Results are merged with the provided \code{water_supplies} dataset for further analysis.
+For each park:
+\enumerate{
+\item A linear trend is fitted to annual visits from \code{start_year} to 2024.
+The 2024 value of that trend is the starting point (\code{obs_2024}; it is
+the fitted value, not the observed count).
+\item The park uses a baseline slope, \code{baseline_growth_rate} times the 2024
+value, instead of its own trend when any of these is true: the trend is
+negative; the park has timed entry (ROMO and YOSE from 2020; GLAC, ACAD
+and HALE from 2021; ZION, ARCH and SHEN from 2022); it has fewer than
+\code{((2024 - start_year) - 1) * 12} monthly records (with the default
+\code{start_year}, 33 years); or its trend is below the baseline slope.
+\item Visits are projected to 2050 (not below 0), and the percent change from
+2024 is the visitation indicator.
+\item Seasonality is the coefficient of variation (CV) of the monthly shares
+of each year's visits, leaving out 2020 and 2021. Its linear trend is
+projected to 2050; for parks on the baseline slope the CV trend is
+multiplied by \code{baseline_seasonality_shift}. The seasonality indicator is
+\verb{100 * (CV 2024 - CV 2050) / CV 2024}, so positive means visits spread
+over more of the year.
+}
+
+Parks whose request or calculation fails are dropped without a message
+and get \code{NA}.
+}
+\examples{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
+# Downloads visitation statistics from the NPS API, so it needs internet
+ws <- wavacore::get_wsd(park = c("ZION", "GRSA"))
+visitation_exp <- calc_visitation_exposure(ws)
+unique(sf::st_drop_geometry(visitation_exp)[, c("park_unit", "slope_adjustment",
+                                                "raw_visitation_pct_change")])
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_visitation_sensitivity]{calc_visitation_sensitivity()}} for the historical trend;
+\code{\link[wavacore:getUnitVisitation]{wavacore::getUnitVisitation()}}, which downloads the visitation data.
 }

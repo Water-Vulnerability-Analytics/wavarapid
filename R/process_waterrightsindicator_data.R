@@ -1,57 +1,104 @@
-#' Process Water Rights Indicator Data - Aqueduct 4.0 Annual Water Risk Data
+#' @title Prepare the Aqueduct 4.0 water stress table for the water rights indicators
 #'
+#' @description
+#' Builds the long water stress table that [calc_waterrights_sensitivity()]
+#' and [calc_waterrights_exposure()] read:
+#' 1. Downloads the TIGER/Line state boundaries ([tigris::states()]) and
+#'    keeps the contiguous US, so it needs internet.
+#' 2. Reads the Aqueduct 4.0 `baseline_annual` and `future_annual` layers
+#'    and keeps the sub-basins that touch the contiguous US.
+#' 3. Attaches each water supply to its nearest sub-basin, separately for
+#'    the baseline and future layers, because they use different HydroBASINS
+#'    resolutions (about 3,137 and 1,011 sub-basins in the contiguous US).
+#'    Both `pfaf_id_baseline` and `pfaf_id_future` are kept.
+#' 4. Reshapes to one row per water supply, pathway and period: the baseline
+#'    (1979-2019) plus RCP2.6, RCP7.0 and RCP8.5 at 2030, 2050 and 2080, so
+#'    10 rows per supply.
 #'
-#' Data Download links: \[active as on August 2026\]
-#' https://www.wri.org/data/aqueduct-global-maps-40-data#download-form \[Form to download data and sign up for updates\]
-#' https://files.wri.org/aqueduct/aqueduct-4-0-water-risk-data.zip \[direct link to download a zip folder with .GDB dataset version\]
-#' Aqueduct Data Dictionary: https://github.com/wri/Aqueduct40/blob/master/data_dictionary_water-risk-atlas.md
+#' The water stress score is log-normalized from 0 to 5; higher means more
+#' competition for water. "Arid and Low Water Use" scores 5, the same as
+#' "Extremely High", and `stress_rank` gives both 5 so category changes read
+#' correctly. `stress_raw` keeps Aqueduct's 9999 code for arid sub-basins;
+#' recode it when plotting. State surface and groundwater doctrines are not
+#' included; they are legal context kept separately.
 #'
+#' s2 geometry is turned off while the function runs (Aqueduct polygons are
+#' large and often invalid) and turned back on when it ends.
 #'
-#' Builds the CONUS boundary from TIGER/Line state polygons, reads and clips the
-#' Aqueduct 4.0 "baseline_annual" and "future_annual" layers to CONUS, attaches
-#' each NPS water supply point to its sub-basin, and returns one long water
-#' stress table ready for the Sensitivity and Exposure indicator calculations.
-#'
-#' State surface/groundwater doctrines are NOT included here - they are
-#' descriptive legal context, carried separately from the water stress metrics.
-#'
-#' When saved, writes a single CSV:
-#'   `waterrights_stress_long.csv` — one row per water system x rcp x period
-#'
-#' One water system contributes 10 rows: the baseline (1979-2019) plus three
-#' CMIP6 pathways (RCP2.6 / RCP7.0 / RCP8.5) at 2030, 2050 and 2080. Downstream:
-#'   - Sensitivity  -> filter(period == "baseline")
-#'   - Exposure     -> filter(period != "baseline"), self-joined to baseline
-#'   - Distribution -> plot stress_raw / stress_score by rcp + period
-#'
-#' Water stress score is a log-normalized 0-5 value; higher = more competition
-#' for water. "Arid and Low Water Use" is scored 5, same as "Extremely High",
-#' and `stress_rank` reflects that tie so category movement reads correctly.
-#' `stress_raw` keeps Aqueduct's 9999 sentinel for arid sub-basins - recode it
-#' at plotting time, not here.
-#'
-#' Baseline and future are joined separately by nearest feature because they are
-#' delivered at different HydroBASINS resolutions (~3,137 vs ~1,011 CONUS
-#' sub-basins); `pfaf_id_baseline` and `pfaf_id_future` are both retained.
+#' Data downloads (active as of August 2026):
+#' - Sign-up form: <https://www.wri.org/data/aqueduct-global-maps-40-data>
+#' - Direct link to the zip with the `.gdb`:
+#'   <https://files.wri.org/aqueduct/aqueduct-4-0-water-risk-data.zip>
+#' - Data dictionary:
+#'   <https://github.com/wri/Aqueduct40/blob/master/data_dictionary_water-risk-atlas.md>
 #'
 #' Citation: Kuzma, S. et al. (2023) Aqueduct 4.0: Updated decision-relevant
 #' global water risk indicators. World Resources Institute.
 #'
+#' @param water_supplies sf object. The water supplies, as points, with the
+#'   WSD columns `wsd_source_id`, `park_unit`, `park_name`, `region`,
+#'   `source_state`, `state`, `water_system_name`, `system_type`,
+#'   `source_longitude` and `source_latitude`, e.g.
+#'   `wavacore::get_wsd(rapid = TRUE)`. Supplies with no `source_state` use
+#'   `state`; supplies outside the contiguous US are dropped, as are repeated
+#'   `wsd_source_id`s. Required.
+#' @param gdb_path String. Path to the Aqueduct 4.0 `.gdb`. Stops with an
+#'   error if it doesn't exist. Default:
+#'   `all/aqueduct_v4/Aqueduct40_waterrisk_download_Y2023M07D05/GDB/Aq40_Y2023D07M05.gdb`
+#'   in the shared data folder, see [wavacore::wava_data_path()].
+#' @param save Logical. Whether to write the table.
+#'   * `TRUE`: writes `waterrights_stress_long.csv` to `output_dir`, creating
+#'     the folder if needed and replacing an existing file. Stops with an
+#'     error if `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing, whatever `save_intermediate` is.
 #'
-#' @param water_supplies sf object of NPS water supply source points, e.g.
-#'   `get_wsd(rapid = TRUE)`. Must include wsd_source_id and source_state.
-#' @param gdb_path character, path to the Aqueduct 4.0 .gdb.
-#' @param save logical, whether to save the output CSV. Defaults to TRUE.
-#' @param output_dir character, directory where the CSV is written.
-#' @param save_intermediate logical, also write the clipped CONUS Aqueduct
-#'   layers as GeoPackages (useful for mapping). Defaults to FALSE.
-#' @param verbose logical, print progress messages? Defaults to TRUE.
-#' @param quiet_warnings logical, suppress the expected GDAL `organizePolygons()`
-#'   warning and the s2 "assumes planar" notes. Defaults to TRUE.
+#'   Default: `TRUE`.
+#' @param output_dir String or `NULL`. The folder for the output files.
+#'   * A folder path: where the files are written when `save = TRUE`.
+#'     Ignored when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
 #'
-#' @return tibble, one row per water system x rcp x period
+#'   Default: `rapid/inputs/WaterRightsIndicator` in the shared data folder,
+#'   which is where the water rights indicators look for the CSV.
+#' @param save_intermediate Logical. Whether to also write the clipped
+#'   Aqueduct layers (useful for maps). Only used when `save = TRUE`.
+#'   * `TRUE`: also writes `CONUS_aqueduct_baseline_annual.gpkg` and
+#'     `CONUS_aqueduct_future_annual.gpkg` to `output_dir`.
+#'   * `FALSE`: writes only the CSV.
 #'
+#'   Default: `TRUE`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints each step, the number of sub-basins and rows, the saved
+#'     paths and the run time.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#' @param quiet_warnings Logical. Whether to hide the expected warnings and
+#'   messages from the spatial steps.
+#'   * `TRUE`: hides them (the GDAL `organizePolygons()` warning and the s2
+#'     "assumes planar" notes). Errors still show.
+#'   * `FALSE`: shows them.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, pathway and period, with
+#'   columns `wsd_source_id`, `park_unit`, `park_name`, `region`,
+#'   `source_state`, `state_name`, `water_system_name`, `system_type`,
+#'   `source_longitude`, `source_latitude`, `aq30_id`, `pfaf_id_baseline`,
+#'   `pfaf_id_future`, `rcp` (`baseline`, `rcp26`, `rcp70`, `rcp85`),
+#'   `period` (`baseline`, `2030`, `2050`, `2080`), `stress_raw`,
+#'   `stress_score` (0-5), `stress_label` (ordered factor) and `stress_rank`
+#'   (1-5).
 #' @export
+#' @seealso [calc_waterrights_sensitivity()] (uses the baseline rows) and
+#'   [calc_waterrights_exposure()] (uses one future period).
+#' @examplesIf interactive() && file.exists(wavacore::wava_data_path("all", "aqueduct_v4", "Aqueduct40_waterrisk_download_Y2023M07D05", "GDB", "Aq40_Y2023D07M05.gdb"))
+#' # Downloads the state boundaries and reads the global Aqueduct layers, so
+#' # it needs internet and takes several minutes
+#' ws <- wavacore::get_wsd(park = c("ZION", "ROMO"))
+#' stress <- process_waterrightsindicator_data(ws, save = FALSE)
+#' table(stress$period, stress$rcp)
+
 process_waterrightsindicator_data <- function(
     water_supplies,
     gdb_path          = wavacore::wava_data_path("all", "aqueduct_v4",

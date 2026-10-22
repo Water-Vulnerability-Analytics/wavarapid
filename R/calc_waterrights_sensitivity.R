@@ -1,53 +1,83 @@
-#' Calculate Water Rights Sensitivity Indicator
+#' @title Water rights sensitivity: current water stress (Aqueduct 4.0)
 #'
-#' Calculates water rights sensitivity from Aqueduct 4.0 baseline (1979-2019)
-#' water stress for the HydroBASINS Level 6 sub-basin containing each NPS water
-#' supply. Requires the long stress table produced by
-#' `process_waterrightsindicator_data()`.
+#' @description
+#' Gives each water supply the baseline (1979-2019) Aqueduct 4.0 water stress
+#' score of the HydroBASINS level 6 sub-basin it is in, from the table made
+#' by [process_waterrightsindicator_data()].
 #'
-#' Sensitivity is how constrained a water system already is. Water stress is the
-#' ratio of total withdrawals (domestic, industrial, irrigation, livestock) to
-#' the renewable blue water available in the sub-basin, so a high score means
-#' many users are already competing for the same water. Competition is the
-#' condition under which water rights administration becomes binding: where
-#' supply is ample a park's legal right is rarely tested, and where competition
-#' is high the governing doctrine determines whether it can divert its full
-#' entitlement.
+#' Water stress is total withdrawals (domestic, industrial, irrigation,
+#' livestock) divided by the renewable water available, so a high score
+#' means many users already compete for the same water. That is when water
+#' rights administration starts to bind: where water is plentiful a park's
+#' right is rarely tested, and where competition is high the state's doctrine
+#' decides whether it can divert its full entitlement.
 #'
-#' The Aqueduct score (0-5) is used rather than the raw withdrawal ratio. The
-#' score is a log-normalized rescaling of the same trend signal, carries
-#' published category thresholds that apply consistently across baseline and
-#' future scenarios, and is better distributed than the raw ratio, which is
-#' unbounded, heavily right-skewed, and uses a 9999 sentinel for arid basins.
-#'
-#' Higher stress = higher sensitivity, so `invert = FALSE` is used when
-#' standardizing. A score of 5 covers both "Extremely High (>80%)" and "Arid and
-#' Low Water Use"; Aqueduct treats both as top priority.
-#'
-#' `water_supplies` is used only as a check: the function stops if the distinct
-#' `wsd_source_id` values in `stress_data` are not the same set as those in
-#' `water_supplies`, which catches a stress table built from a different (or
-#' stale) supply list.
+#' The score (0-5) is used rather than the raw ratio: it is a log-normalized
+#' version of the same signal, has published category thresholds that apply
+#' to both baseline and future, and is better distributed than the raw ratio
+#' (unbounded, right-skewed, and 9999 for arid basins). A score of 5 covers
+#' both "Extremely High (>80%)" and "Arid and Low Water Use", which Aqueduct
+#' treats as the top priority.
 #'
 #' Citation: Kuzma, S. et al. (2023) Aqueduct 4.0: Updated decision-relevant
 #' global water risk indicators. World Resources Institute.
 #'
-#' @param water_supplies sf object with water supply point locations, used to
-#'   verify that `stress_data` covers the same set of `wsd_source_id` values.
-#' @param stress_data character path to `waterrights_stress_long.csv` (output of
-#'   `process_waterrightsindicator_data()`), or a data.frame with the same
-#'   columns. Must include `wsd_source_id`, `park_unit`, `park_name`, `period`,
-#'   `stress_score`, and `stress_label`.
-#' @param save logical, whether to save output. Default is `FALSE`.
-#' @param output_dir character, directory path for saving files. Required if
-#'   `save = TRUE`.
-#' @param verbose logical, whether to show progress messages. Default is `TRUE`.
+#' @param water_supplies sf object. The water supplies, with a
+#'   `wsd_source_id` column. Only used as a check: the function stops with an
+#'   error if the `wsd_source_id`s in `stress_data` are not exactly the same
+#'   set, which catches a stress table made from a different or older list
+#'   of supplies. Required.
+#' @param stress_data String or data frame. The long water stress table from
+#'   [process_waterrightsindicator_data()], with columns `wsd_source_id`,
+#'   `park_unit`, `park_name`, `period`, `stress_score` and `stress_label`.
+#'   Only the `period == "baseline"` rows are used.
+#'   * String: path to `waterrights_stress_long.csv`. Stops with an error if
+#'     the file doesn't exist.
+#'   * Data frame: the same table, already read.
 #'
-#' @return tibble with one row per water supply: `wsd_source_id`, `park_unit`,
-#'   `park_name`, `water_stress_label` (Aqueduct category), and raw/norm/rank
-#'   columns for `raw_water_stress` (baseline score 0-5, not inverted)
+#'   Default: `rapid/inputs/WaterRightsIndicator/waterrights_stress_long.csv`
+#'   in the shared data folder, see [wavacore::wava_data_path()].
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `waterrights_sensitivity_<date>.csv`, named with today's date, to
+#'     `output_dir`, creating the folder if needed. Stops with an error if
+#'     `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints each step, the run time and the path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit`, `park_name`, `water_stress_label` (the Aqueduct category),
+#'   `raw_water_stress` (baseline score, 0-5) and its `norm_` and `rank_`
+#'   versions from [add_standardized_indicators()]. Higher stress gets a
+#'   higher score.
 #' @export
+#' @seealso [calc_waterrights_exposure()] for the projected stress;
+#'   [process_waterrightsindicator_data()], which makes `stress_data`.
+#' @examplesIf file.exists(wavacore::wava_data_path("rapid", "inputs", "WaterRightsIndicator", "waterrights_stress_long.csv"))
+#' # The stress table and water_supplies must cover the same supplies, so
+#' # keep the same ones in both
+#' stress <- readr::read_csv(wavacore::wava_data_path("rapid", "inputs",
+#'                                                    "WaterRightsIndicator",
+#'                                                    "waterrights_stress_long.csv"),
+#'                           show_col_types = FALSE)
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' ws <- ws[ws$wsd_source_id %in% stress$wsd_source_id, ]
+#' stress <- stress[stress$wsd_source_id %in% ws$wsd_source_id, ]
+#'
+#' wr_sen <- calc_waterrights_sensitivity(ws, stress_data = stress)
+#' wr_sen
+
 calc_waterrights_sensitivity <- function(
     water_supplies,
     stress_data = wavacore::wava_data_path("rapid",

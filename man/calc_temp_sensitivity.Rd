@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_temp_sensitivity.R
 \name{calc_temp_sensitivity}
 \alias{calc_temp_sensitivity}
-\title{Calculate Historical Temperature Sensitivity Indicator}
+\title{Temperature sensitivity: historical trend in annual mean air temperature}
 \usage{
 calc_temp_sensitivity(
   water_supplies,
@@ -16,30 +16,90 @@ calc_temp_sensitivity(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with water supply locations.}
+\item{water_supplies}{sf object. The water supplies, with a
+\code{wsd_source_id} column, e.g. from \code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Only their IDs
+are used, to pick rows from the processed file. Required.}
 
-\item{temp_data}{character, directory containing processed LOCA2/MWBM temperature files.
-Defaults to \code{wava_data_path("rapid", "inputs", "loca2_temperature_water_supplies/")}.}
+\item{temp_data}{String. The folder of processed temperature parquet
+files from \code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}. Stops with an error if it has no
+parquet files. Default: \code{rapid/inputs/loca2_temperature_water_supplies}
+in the shared data folder,
+see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{historical}{Character vector of length 2 giving the start and end years
-(in \code{"YYYY"} format) that define the historical period.}
+\item{historical}{Character or numeric vector of 2 years, e.g.
+\code{c(1980, 2010)}. The first and last year of the trend period. Required.}
 
-\item{water_year}{T/F, if TRUE, uses water-year bounds (Oct 1 - Sep 30) before annual aggregation.}
+\item{water_year}{Logical. How months are grouped into years.
+\itemize{
+\item \code{TRUE}: water years, October to September, labelled by the year they
+end in.
+\item \code{FALSE}: calendar years.
+}
 
-\item{save}{logical, whether to save output. Default is \code{FALSE}.}
+Default: \code{TRUE}.}
 
-\item{output_dir}{character, directory path for saving files. Required if
-\code{save = TRUE}.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{temperature_sensitivity_<date>.csv}, named with today's
+date, to \code{output_dir}, creating the folder if needed. Stops with an
+error if \code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{verbose}{logical, whether to show progress messages. Default is \code{TRUE}.}
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: shows a progress bar and messages with the run time and the
+path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble with one row per water supply and historical temperature
-sensitivity indicators.
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit} and:
+\itemize{
+\item \code{raw_avg_temperature}: mean annual temperature (degrees C);
+\item \code{raw_slope_temperature}: Sen's slope (degrees C per year);
+\item \code{n_years}, \code{mk_significant} (Mann-Kendall p < 0.05) and
+\code{trend_direction} (\code{"increasing"}, \code{"decreasing"} or \code{"no change"});
+\item \verb{norm_*} and \verb{rank_*} versions of both \verb{raw_*} columns from
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}. Not inverted: warmer or faster
+warming gets a higher score.
+}
 }
 \description{
-Calculates a historical temperature sensitivity indicator from processed
-LOCA2/MWBM temperature data. This follows the precipitation sensitivity helper
-structure, but uses annual mean temperature and raw temperature slopes in
-degrees C per year rather than percent-scaled change.
+Calculates the historical trend in annual mean air temperature at each
+water supply. Of the temperature files in \code{temp_data} (names containing
+tas, temp, temperature, Tmin or Tmax), it reads the training or observed
+ones (Jay, lusu, livneh or training in the name); if there are none, the
+\code{historical} model files; if there are none of those either, all of them.
+Values from several files are averaged. Monthly values are averaged over
+each site's grid cells and over the year. The slope is in degrees C per
+year; there is no percent version. The trend is Sen's slope
+(\code{\link[trend:sens.slope]{trend::sens.slope()}}), tested with Mann-Kendall (\code{\link[trend:mk.test]{trend::mk.test()}});
+sites with fewer than 3 years get \code{NA}.
+}
+\examples{
+\dontshow{if (file.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_temperature_water_supplies", "jay_alder_tas_MWBM_LOCA2_training_195001-201412.nc.parquet"))) withAutoprint(\{ # examplesIf}
+ws <- wavacore::get_wsd(park = "ZION")
+temp_sen <- calc_temp_sensitivity(ws, historical = c(1980, 2010))
+temp_sen[, c("wsd_source_id", "raw_avg_temperature", "raw_slope_temperature",
+             "trend_direction")]
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_temp_exposure]{calc_temp_exposure()}} for the projected change;
+\code{\link[=process_loca2_mwbm]{process_loca2_mwbm()}}, which makes the input files.
 }

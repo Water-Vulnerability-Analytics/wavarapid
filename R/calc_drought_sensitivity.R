@@ -1,48 +1,94 @@
-#' Calculate Historical Drought Sensitivity Indicator
+#' @title Drought sensitivity: historical drought trend, frequency and severity
 #'
-#' Calculates historical drought sensitivity directly from the Jay Alder
-#' historical precipitation and PET training data. Monthly precipitation and PET
-#' are aggregated across grid cells for each water supply, joined by month, and
-#' used to calculate climatic water balance and SPEI. Annual mean SPEI is then
-#' used to estimate historical drought trends with Sen's slope and the
-#' Mann-Kendall test for each water supply.
+#' @description
+#' Calculates historical drought indicators at each water supply from the Jay
+#' Alder MWBM training run. Monthly precipitation and PET are averaged over
+#' each site's grid cells and joined by month, and the climatic water balance
+#' (precipitation minus PET) is turned into SPEI with [SPEI::spei()], using
+#' the historical period as the reference. `Inf` and `-Inf` SPEI values are
+#' capped at `spei_inf_cap` and `-spei_inf_cap`. Sites need SPEI for at least
+#' 90% of the historical months.
 #'
-#' The function also summarizes the percentage of historical months classified
-#' as moderate-or-worse drought (`SPEI <= drought_threshold`) and mean drought
-#' severity. Drought severity is expressed as the positive magnitude of negative
-#' SPEI values, so larger values indicate more severe historical drought.
+#' From the monthly SPEI it calculates:
+#' * the trend in annual mean SPEI: Sen's slope ([trend::sens.slope()]),
+#'   tested with Mann-Kendall ([trend::mk.test()]), for sites with at least 3
+#'   years;
+#' * drought frequency: the percentage of months with
+#'   `SPEI <= drought_threshold`;
+#' * drought severity: the mean of `abs(SPEI)` over those months, so larger
+#'   means more severe.
 #'
-#' Infinite SPEI values are directionally meaningful but numerically unbounded.
-#' Therefore, `-Inf` values are capped at `-spei_inf_cap` and `Inf` values are
-#' capped at `spei_inf_cap` before calculating sensitivity indicators. Counts of
-#' capped values are retained as diagnostics.
+#' @param water_supplies sf object. The water supplies, with `wsd_source_id`
+#'   and `park_unit` columns, e.g. from [wavacore::get_wsd()]. Only their IDs
+#'   are used, to pick rows from the files. Required.
+#' @param precip_data String. The folder with the processed training
+#'   precipitation file,
+#'   `jay_alder_pr_MWBM_LOCA2_training_195001-201412.nc.parquet`; stops with
+#'   an error if it isn't there. Default:
+#'   `rapid/inputs/loca2_precipitation_water_supplies` in the shared data
+#'   folder, see [wavacore::wava_data_path()].
+#' @param pet_data String. The folder with the processed training PET file,
+#'   `jay_alder_pet_MWBM_LOCA2_training_195001-201412.nc.parquet`; stops with
+#'   an error if it isn't there. The name is matched exactly, so on a
+#'   case-sensitive file system a file named `Jay_Alder_pet_...` is not found.
+#'   Default: `rapid/inputs/loca2_pet_water_supplies` in the shared data
+#'   folder.
+#' @param spei_scale Integer. The SPEI accumulation scale in months, passed
+#'   to [SPEI::spei()]. Default: `12`.
+#' @param spei_inf_cap Numeric. The absolute value that replaces `Inf` and
+#'   `-Inf` SPEI values. Must be positive. Default: `4`.
+#' @param drought_threshold Numeric. The SPEI value at or below which a month
+#'   counts as a drought month. Default: `-1` (moderate drought or worse).
+#' @param historical Character or numeric vector of 2 years, e.g.
+#'   `c(1980, 2010)`. The first and last year of the historical period. The
+#'   training run covers 1950-2014. Required.
+#' @param water_year Logical. How months are grouped into years for the
+#'   annual means and the trend.
+#'   * `TRUE`: water years, October to September, labelled by the year they
+#'     end in.
+#'   * `FALSE`: calendar years.
 #'
-#' @param water_supplies An `sf` object containing water supply locations. Must
-#'   include `wsd_source_id` and `park_unit`.
-#' @param precip_data Character. Directory containing the processed historical
-#'   precipitation parquet file. Defaults to
-#'   `wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/")`.
-#' @param pet_data Character. Directory containing the processed historical PET
-#'   parquet file. Defaults to
-#'   `wava_data_path("rapid", "inputs", "loca2_pet_water_supplies/")`.
-#' @param spei_scale Positive integer. Accumulation scale in months passed to
-#'   `SPEI::spei()`. Default is `12`.
-#' @param spei_inf_cap Numeric. Absolute cap used to replace `Inf` and `-Inf`
-#'   SPEI values. Default is `4`.
-#' @param drought_threshold Numeric. SPEI threshold used to classify drought
-#'   months. Default is `-1`, representing moderate-or-worse drought.
-#' @param historical Character vector of length 2 giving the historical period,
-#'   e.g. `c("1980", "2010")`.
-#' @param water_year Logical. If `TRUE`, annual summaries use Oct-Sep water
-#'   years. If `FALSE`, calendar years are used.
-#' @param save Logical. If `TRUE`, writes results to disk.
-#' @param output_dir Character. Output directory when `save = TRUE`.
-#' @param verbose Logical. If `TRUE`, prints progress messages.
+#'   Default: `TRUE`.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `drought_sensitivity_<date>.csv`, named with today's
+#'     date, to `output_dir`, creating the folder if needed. Stops with an
+#'     error if `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
 #'
-#' @return A tibble with one row per water supply and historical drought
-#'   sensitivity indicators.
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
 #'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: prints each step, the run time and the path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit` and:
+#'   * `raw_slope_spei`: Sen's slope of annual mean SPEI (per year), with
+#'     `n_years`, `mk_significant` (p < 0.05) and `trend_direction`
+#'     (`"becoming wetter"`, `"becoming drier"` or `"no change"`);
+#'   * `raw_avg_spei`, `raw_drought_month_frequency` (%) and
+#'     `raw_avg_drought_severity`;
+#'   * `raw_spei_*inf*` and `raw_spei_months`: counts and the percentage of
+#'     capped `Inf` and `-Inf` months;
+#'   * `norm_*` and `rank_*` versions of the slope (inverted, so drying gets
+#'     the highest score), the frequency and the severity, from
+#'     [add_standardized_indicators()].
 #' @export
+#' @seealso [calc_drought_exposure()] for the projected change;
+#'   [calc_precip_sensitivity()], which reads the same precipitation file.
+#' @examplesIf file.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_pet_water_supplies", "jay_alder_pet_MWBM_LOCA2_training_195001-201412.nc.parquet"))
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' drought_sen <- calc_drought_sensitivity(ws, historical = c(1980, 2010))
+#' drought_sen[, c("wsd_source_id", "raw_slope_spei", "trend_direction",
+#'                 "raw_drought_month_frequency", "raw_avg_drought_severity")]
+
 calc_drought_sensitivity <- function(water_supplies,
                                      precip_data = wavacore::wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/"),
                                      pet_data = wavacore::wava_data_path("rapid", "inputs", "loca2_pet_water_supplies/"),

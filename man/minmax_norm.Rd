@@ -2,31 +2,43 @@
 % Please edit documentation in R/calc_vulnerability_index.R
 \name{minmax_norm}
 \alias{minmax_norm}
-\title{──────────────────────────────────────────────────────────────────────────────
-calc_vulnerability_index.R}
+\title{Rescale a vector to 0-1 (min-max normalization)}
 \usage{
 minmax_norm(x, na.rm = TRUE)
 }
 \arguments{
-\item{x}{Numeric vector.}
+\item{x}{Numeric vector. The values to rescale. Required.}
 
-\item{na.rm}{Logical. Ignore \code{NA} when finding the minimum and maximum.}
+\item{na.rm}{Logical. How missing values are treated when finding the
+minimum and maximum.
+\itemize{
+\item \code{TRUE}: ignores them, so the other values are rescaled and the missing
+ones stay \code{NA}.
+\item \code{FALSE}: any \code{NA} in \code{x} makes the whole result \code{NA}.
+}
+
+Default: \code{TRUE}.}
+}
+\value{
+A numeric vector the same length as \code{x}, with values from 0 to 1.
 }
 \description{
-Calculates the NPS Water Supply Vulnerability Index following the
-Michalak et al. (2021, 2026) Euclidean distance framework.
+Rescales \code{x} so its minimum becomes 0 and its maximum 1. Used by
+\code{\link[=calc_vulnerability_index]{calc_vulnerability_index()}} for every indicator and factor. Missing values
+stay missing. If all values are the same, every non-missing value becomes
+0. If \code{x} is all \code{NA}, or its minimum or maximum isn't finite, the result is
+all \code{NA}.
 }
-\details{
-Input:  a cleaned data frame with one row per water supply system and
-columns matching the indicator names defined in the hierarchy.
-Output: the same data frame with appended normalized indicator, factor,
-component, and vulnerability index columns.
+\examples{
+minmax_norm(c(2, 4, 6, NA))
 
-SCOPE (Aug 2026 revision): this now implements every indicator carrying a
-status of "Implemented" or "Provisional" in Table 1 of the Technical Methods
-Report. Indicators with a status of "Planned" (Flood exposure, Water Quality,
-Water Rights, Water Treatment Type) are deliberately NOT calculated here and
-contribute nothing to any score.
-──────────────────────────────────────────────────────────────────────────────
-Min-max normalize to [0, 1]
+# All values the same: 0, and NA stays NA
+minmax_norm(c(3, 3, NA))
+
+# Any NA makes the result NA when na.rm = FALSE
+minmax_norm(c(2, 4, 6, NA), na.rm = FALSE)
+}
+\seealso{
+\code{\link[=add_standardized_indicators]{add_standardized_indicators()}}, which adds \code{norm_} (0-1) and
+\code{rank_} columns to indicator tables.
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_nearby_use_sensitivity.R
 \name{calc_nearby_use_sensitivity}
 \alias{calc_nearby_use_sensitivity}
-\title{Calculate historical nearby-use pressure from county monthly climatologies}
+\title{Nearby use sensitivity: historical county water withdrawals}
 \usage{
 calc_nearby_use_sensitivity(
   water_supplies,
@@ -16,33 +16,75 @@ calc_nearby_use_sensitivity(
 )
 }
 \arguments{
-\item{water_supplies}{sf points with wsd_source_id, park_unit, park_name.}
+\item{water_supplies}{sf object. The water supplies, as points with
+\code{wsd_source_id}, \code{park_unit} and \code{park_name} columns, e.g. from
+\code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Required.}
 
-\item{data_dir}{Folder with the water_demand_projections CSVs.}
+\item{data_dir}{String. The folder with \code{pub_irr_monthly_avg_2000_2020.csv}
+and \code{tep_monthly_avg_2000_2020.csv}. Default:
+\verb{Latest county-level data/water_demand_projections} in the shared data
+folder, see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{save, output_dir}{Save nearby_use_sensitivity_YYYY-MM-DD.csv to output_dir.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{nearby_use_sensitivity_<date>.csv}, named with today's
+date, to \code{output_dir}. The folder must already exist; \code{output_dir}
+can't be \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{verbose}{Report the saved filename.}
+Default: \code{FALSE}.}
 
-\item{months}{Calendar months to average (default all 12).}
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file when
+\code{save = TRUE}; ignored otherwise. Default: \code{NULL}.}
 
-\item{max_county_distance_km}{Nearest-county limit for points outside counties.}
+\item{verbose}{Logical. Whether to print the path of the saved file.
+\itemize{
+\item \code{TRUE}: prints it when \code{save = TRUE}.
+\item \code{FALSE}: prints nothing.
+}
+
+Default: \code{TRUE}.}
+
+\item{months}{Integer vector. The calendar months (1-12) to average.
+Default: \code{1:12}.}
+
+\item{max_county_distance_km}{Numeric. How far, in km, a supply outside
+every county can be from the nearest county and still use it. Supplies
+farther away get \code{NA}. Default: \code{5}.}
 }
 \value{
-Tibble with one row per supply. Results are NA when no county falls
-within max_county_distance_km, the county is absent from the historical
-file, or any month or expected plant is unreported. There is no
-data_status column, as every gap here is a historical one. Gaps are left
-NA rather than treated as zero use.
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit}, \code{park_name}, the county (\code{fips}, \code{county_area_km2},
+\code{county_distance_km}, \code{county_source}), \code{raw_avg_nearby_use} (MGD),
+\code{raw_avg_nearby_use_per_km2} (MGD per km2), and their \code{norm_} and
+\code{rank_} versions from \code{\link[=add_standardized_indicators]{add_standardized_indicators()}}. There is no
+\code{data_status} column; every gap here is historical.
 }
 \description{
-2000-2020 county withdrawals (public supply + crop irrigation +
-thermoelectric, in MGD) from Blumberg and Warziniack, per county area. The
-main measure is raw_avg_nearby_use_per_km2. The data are 12 climatological
-months, not a yearly series, so no trend can be estimated. A missing month
-or known power plant makes a county total NA.
+Gives each water supply the 2000-2020 water withdrawals of its county
+(public supply, crop irrigation and thermoelectric, in million gallons per
+day, MGD), from the Blumberg and Warziniack county data, per km2 of county
+land. The main measure is \code{raw_avg_nearby_use_per_km2}. The data are 12
+average months, not a series of years, so no trend is calculated.
+
+Each water supply gets the 2020 TIGER/Line county it is in (downloaded
+with \code{\link[tigris:counties]{tigris::counties()}}, so it needs internet), or the nearest county
+within \code{max_county_distance_km}. The months in \code{months} are averaged,
+weighted by days. A missing month, or a known power plant that doesn't
+report, makes the county total \code{NA}; gaps stay \code{NA} rather than being read
+as zero use. The \code{norm_} and \code{rank_} columns are relative to the water
+supplies passed in.
 }
-\details{
-Supplies use the 2020 TIGER/Line county they fall in, or the nearest county
-within max_county_distance_km. norm_/rank_ columns are across supplies.
+\examples{
+\dontshow{if (interactive() && dir.exists(wavacore::wava_data_path("Latest county-level data", "water_demand_projections"))) withAutoprint(\{ # examplesIf}
+# Downloads the county boundaries, so it needs internet
+ws <- wavacore::get_wsd(park = c("ZION", "ROMO"))
+use_sen <- calc_nearby_use_sensitivity(ws)
+use_sen[, c("wsd_source_id", "fips", "raw_avg_nearby_use_per_km2")]
+\dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=calc_nearby_use_exposure]{calc_nearby_use_exposure()}} for the projected change;
+\code{\link[=calc_wta_sensitivity]{calc_wta_sensitivity()}} for watershed water stress.
 }

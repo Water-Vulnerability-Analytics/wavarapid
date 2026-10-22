@@ -2,7 +2,7 @@
 % Please edit documentation in R/calc_swi_exposure.R
 \name{calc_swi_exposure}
 \alias{calc_swi_exposure}
-\title{Calculate Saltwater Intrusion Exposure Indicator}
+\title{Saltwater intrusion exposure}
 \usage{
 calc_swi_exposure(
   water_supplies,
@@ -15,42 +15,90 @@ calc_swi_exposure(
 )
 }
 \arguments{
-\item{water_supplies}{sf object with water supply point locations. Must
-contain columns \code{wsd_source_id}, \code{park_unit}, and \code{park_name}.}
+\item{water_supplies}{sf object. The water supplies, as points with
+\code{wsd_source_id}, \code{park_unit} and \code{park_name} columns, e.g. from
+\code{\link[wavacore:get_wsd]{wavacore::get_wsd()}}. Stops with an error if a column is missing.
+Required.}
 
-\item{swi_pts}{Saltwater intrusion points. Character path to swi_points.gpkg produced by
-\code{process_swi_data()}. Defaults to \code{wava_data_path("rapid", "inputs", "swi", "swi_points.gpkg")}.}
+\item{swi_pts}{String or sf object. The saltwater intrusion points from
+\code{\link[=process_swi_data]{process_swi_data()}}, with a \code{Case_C} column.
+\itemize{
+\item String: path to \code{swi_points.gpkg}. Stops with an error if the file
+doesn't exist.
+\item sf object: the points, already read.
+}
 
-\item{coast_distances}{character path to coastal_site_geometry.csv
-produced by \code{process_coastal_geometry()} (only \code{coast_dist_m} is used
-here; \code{coast_elev_m} is dropped after the join).}
+Default: \code{rapid/inputs/swi/swi_points.gpkg} in the shared data folder,
+see \code{\link[wavacore:wava_data_path]{wavacore::wava_data_path()}}.}
 
-\item{save}{logical, whether to save output CSV. Defaults to FALSE.}
+\item{coast_distances}{String. Path to \code{coastal_site_geometry.csv} from
+\code{\link[=process_coastal_geometry]{process_coastal_geometry()}}, joined by \code{wsd_source_id}, \code{park_unit} and
+\code{park_name}; only \code{coast_dist_m} is used. Stops with an error if the
+file doesn't exist. Default:
+\code{rapid/inputs/coast_comp/coastal_site_geometry.csv} in the shared data
+folder.}
 
-\item{output_dir}{character, directory path for saving files. Required when
-\code{save = TRUE}.}
+\item{save}{Logical. Whether to write the results to a CSV file.
+\itemize{
+\item \code{TRUE}: writes \verb{swi_exposure_<date>.csv}, named with today's date, to
+\code{output_dir}, creating the folder if needed. Stops with an error if
+\code{output_dir} is \code{NULL}.
+\item \code{FALSE}: writes nothing.
+}
 
-\item{verbose}{logical, whether to print progress messages. Defaults to TRUE.}
+Default: \code{FALSE}.}
+
+\item{output_dir}{String or \code{NULL}. The folder for the CSV file.
+\itemize{
+\item A folder path: where the file is written when \code{save = TRUE}. Ignored
+when \code{save = FALSE}.
+\item \code{NULL}: only allowed with \code{save = FALSE}.
+}
+
+Default: \code{NULL}.}
+
+\item{verbose}{Logical. Whether to print progress.
+\itemize{
+\item \code{TRUE}: prints each step, how many supplies got a value, the run time
+and the path of the saved file.
+\item \code{FALSE}: runs silently.
+}
+
+Default: \code{TRUE}.}
 }
 \value{
-tibble with one row per water supply and columns:
-\code{wsd_source_id}, \code{park_unit}, \code{park_name},
-\code{raw_swi_migration} (Case_C in meters; NA if > 50 km from any SWI point),
-\code{norm_swi_migration}, \code{rank_swi_migration}
+A tibble, one row per water supply, with \code{wsd_source_id},
+\code{park_unit}, \code{park_name}, \code{raw_swi_migration} (\code{Case_C} divided by the
+distance to the coast, at most 1, no units), and its \code{norm_} and \code{rank_}
+versions from \code{\link[=add_standardized_indicators]{add_standardized_indicators()}}.
 }
 \description{
-For each NPS water supply, assigns Case_C saltwater intrusion migration
-(meters) using nearest-neighbor distance to the Adams et al. 2024 SWI
-estimation points. Water supplies farther than 50 km from any SWI point
-are assigned NA (not at coastal SWI risk). Those points that are assigned
-SWI values are then weighted based on their distance to the coast, using the
-same dataset which was produced in \code{process_coastal_geometry()}. The raw
-migration value is divided by \code{coast_dist_m} to produce a dimensionless ratio:
-what fraction of the land-to-coast corridor is projected to be intruded.
+Gives each water supply the projected inland migration of the
+saltwater-freshwater interface by 2100 (\code{Case_C}, from recharge change and
+sea level rise combined, Adams et al. 2024) at its nearest saltwater
+intrusion point, then divides it by the supply's distance to the coast.
+The result is the fraction of the land between the supply and the coast
+that is projected to be intruded, capped at 1. Negative values mean the
+interface moves seaward.
+
+Supplies more than 50 km from the nearest point, or more than 50 km from
+the coast (\code{coast_dist_m} is \code{NA}), get \code{NA}.
 }
-\details{
-Case_C = combined recharge-change + sea-level-rise driven inland migration
-of the saltwater-freshwater interface projected to 2100, in meters. Positive
-values indicate expected inland intrusion (higher exposure); negative values
-indicate the interface retreats.
+\examples{
+\dontshow{if (file.exists(wavacore::wava_data_path("rapid", "inputs", "swi", "swi_points.gpkg"))) withAutoprint(\{ # examplesIf}
+ws <- wavacore::get_wsd(park = "BISC")
+swi_exp <- calc_swi_exposure(ws)
+swi_exp
+\dontshow{\}) # examplesIf}
+}
+\references{
+Adams, K.H., Reager, J.T., Buzzanga, B., David, C., Sawyer, A., and
+Hamlington, B. (2024). Climate-induced saltwater intrusion in 2100:
+recharge-driven severity, sea level-driven prevalence. Geophysical
+Research Letters.
+}
+\seealso{
+\code{\link[=process_swi_data]{process_swi_data()}} and \code{\link[=process_coastal_geometry]{process_coastal_geometry()}}, which make
+the inputs; \code{\link[=calc_storm_surge_exposure]{calc_storm_surge_exposure()}} and
+\code{\link[=calc_inundation_exposure]{calc_inundation_exposure()}}, the other coastal indicators.
 }

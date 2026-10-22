@@ -1,53 +1,115 @@
-#' Calculate Precipitation Timing Exposure Indicator (Center-of-Timing)
+#' @title Precipitation timing exposure: projected shift in the center of timing
 #'
-#' Computes a change-in-precipitation-timing exposure metric for NPS water
-#' supplies using LOCA2-driven MWBM monthly precipitation outputs. Timing is
-#' measured with a **circular center of timing (CT)**, the precipitation-weighted
-#' temporal centroid of the annual precipitation cycle. The circular calculation
-#' is the precipitation analogue of the streamflow center-of-timing concept of
-#' Stewart, Cayan & Dettinger (2005) and avoids an artificial discontinuity at
-#' the September-October water-year boundary.
+#' @description
+#' Calculates how much the timing of annual precipitation at each water
+#' supply shifts between a historical and a future period, from LOCA2 monthly
+#' precipitation. Timing is measured with the circular center of timing (CT),
+#' the precipitation-weighted centroid of the year: the precipitation version
+#' of the streamflow center of timing of Stewart, Cayan & Dettinger (2005).
+#' The circular form avoids a jump at the September-October water-year
+#' boundary. Only files whose years (from the file name) overlap the two
+#' periods are read.
 #'
-#' For each water year and each GCM/SSP/run, monthly precipitation totals are
-#' placed at their month-midpoint and combined as weighted vectors. CT is the
-#' angle of the resulting vector, expressed as an approximate day of water year.
+#' For each year and model run, each month's precipitation total is placed at the
+#' angle of the month's midpoint and the months are combined as weighted
+#' vectors; CT is the angle of the result, as a day of the water year. Only
+#' years with all 12 months are used. The historical and future CT are
+#' circular means over their years, and the shift is future minus historical
+#' in days (negative = earlier).
 #'
-#' For each site, the direction supported by the most model realizations is
-#' selected. The signed p10 shift is used when earlier timing is dominant and
-#' the signed p90 shift is used when later timing is dominant. For an exact
-#' 50/50 split, the tail with the greater absolute shift is selected. The absolute
-#' value of that selected shift is the exposure magnitude. The output also
-#' reports the selected direction and the fraction of valid realizations that
-#' agree with it.
+#' For each site, the direction (earlier or later) that most model runs show
+#' is selected, and the shift of the run closest to the 10th percentile
+#' (earlier) or 90th percentile (later) is used. On an even split, the tail
+#' with the larger absolute shift is used. The size of that shift is the
+#' exposure. A second set (`alt_timing`) uses the run closest to the 90th
+#' percentile of the absolute shift, whatever its direction.
 #'
-#' @param water_supplies An \code{sf} object with a \code{wsd_source_id} column.
-#' @param precip_data Character. Directory of processed LOCA2 MWBM monthly
-#'   precipitation parquet files.
-#' @param hindcast Logical. If \code{TRUE}, uses hindcast climate data; if
-#'   \code{FALSE}, uses LOCA-downscaled observed (Livneh) plus modeled data.
-#' @param historical,future Character length-2 vectors of start/end years ("YYYY").
-#' @param water_year Logical. If \code{TRUE}, uses water years (Oct-Sep). CT is
-#'   defined on the water year, so this should normally be TRUE.
-#' @param save Logical. If `TRUE`, results are saved to a file in `output_dir`.
-#'   Defaults to `FALSE`.
-#' @param output_dir Optional character string specifying the directory where results
-#'   will be saved if `save = TRUE`. Ignored otherwise.
-#' @param verbose Logical. If `TRUE`, progress messages are printed to the console.
-#'   Defaults to `TRUE`.
+#' @param water_supplies sf object. The water supplies, with a
+#'   `wsd_source_id` column, e.g. from [wavacore::get_wsd()]. Only their IDs
+#'   are used, to pick rows from the processed files. Required.
+#' @param precip_data String. The folder of processed precipitation parquet
+#'   files from [process_loca2_mwbm()]. Stops with an error if no files are
+#'   left after the `hindcast` and year filters. Default:
+#'   `rapid/inputs/loca2_precipitation_water_supplies` in the shared data
+#'   folder,
+#'   see [wavacore::wava_data_path()].
+#' @param hindcast Logical. Where the historical period comes from.
+#'   * `TRUE`: each model's own historical run, so the shift is measured
+#'     within each model. Historical years after the historical run ends
+#'     (2014) come from the same model's scenario run. Training and Livneh
+#'     (`livneh_unsplit`) files are not read.
+#'   * `FALSE`: observed (Livneh) precipitation, the same baseline for every
+#'     model, from the `livneh_unsplit` files in `precip_data`; the future
+#'     comes from the scenario files. Model values before 2019 are dropped.
+#'     Needs Livneh files in `precip_data`.
 #'
-#' @return A tibble with one row per water supply / park unit containing the
-#'   selected timing-change magnitude, dominant direction, model-agreement
-#'   fraction, and standardized magnitude indicators.
-#'   A secondary `alt_timing` set reports the p90 absolute change and the
-#'   fraction of models agreeing with the direction of that selected p90 member.
+#'   Default: `TRUE`.
+#' @param historical Character or numeric vector of 2 years, e.g.
+#'   `c(1980, 2010)`. The first and last year of the historical period.
+#'   Required.
+#' @param future Character or numeric vector of 2 years, e.g.
+#'   `c(2035, 2065)`. The first and last year of the future period. Required.
+#' @param water_year Logical. How months are grouped into years. CT is
+#'   defined on the water year, so this should normally be `TRUE`.
+#'   * `TRUE`: water years, October to September, labelled by the year they
+#'     end in.
+#'   * `FALSE`: calendar years. The month angles still start in October.
 #'
+#'   Default: `TRUE`.
+#' @param save Logical. Whether to write the results to a CSV file.
+#'   * `TRUE`: writes `precip_timing_exposure_<date>.csv`, named with today's
+#'     date, to `output_dir`, creating the folder if needed. Stops with an
+#'     error if `output_dir` is `NULL`.
+#'   * `FALSE`: writes nothing.
+#'
+#'   Default: `FALSE`.
+#' @param output_dir String or `NULL`. The folder for the CSV file.
+#'   * A folder path: where the file is written when `save = TRUE`. Ignored
+#'     when `save = FALSE`.
+#'   * `NULL`: only allowed with `save = FALSE`.
+#'
+#'   Default: `NULL`.
+#' @param verbose Logical. Whether to print progress.
+#'   * `TRUE`: shows a progress bar over the files and messages with the run
+#'     time and the path of the saved file.
+#'   * `FALSE`: runs silently.
+#'
+#'   Default: `TRUE`.
+#'
+#' @return A tibble, one row per water supply, with `wsd_source_id`,
+#'   `park_unit` and:
+#'   * `precip_timing_change_direction`: `"earlier"` or `"later"`;
+#'   * `raw_precip_timing_change_magnitude`: the size of the selected shift,
+#'     in days;
+#'   * `raw_precip_timing_direction_agreement_fraction`: the fraction (0-1)
+#'     of model runs that shift in that direction;
+#'   * `precip_alt_timing_change_direction`,
+#'     `raw_precip_alt_timing_change_magnitude` and
+#'     `raw_precip_alt_timing_direction_agreement_fraction`: the same for the
+#'     run closest to the 90th percentile of the absolute shift;
+#'   * `norm_*` and `rank_*` versions of the two magnitudes from
+#'     [add_standardized_indicators()] (a larger shift gets a higher score).
 #' @references
-#' Stewart, I.T., Cayan, D.R., & Dettinger, M.D. (2005). Changes toward earlier
-#'   streamflow timing across western North America. J. Climate, 18, 1136-1155.
+#' Stewart, I.T., Cayan, D.R., & Dettinger, M.D. (2005). Changes toward
+#'   earlier streamflow timing across western North America. J. Climate, 18,
+#'   1136-1155.
+#'
 #' Dettinger, M.D., & Cayan, D.R. (1995). Large-scale atmospheric forcing of
 #'   recent trends toward early snowmelt runoff in California. J. Climate, 8,
 #'   606-623.
 #' @export
+#' @seealso [calc_precip_exposure()] for the change in amount;
+#'   [calc_runoff_timing_exposure()] for runoff timing;
+#'   [process_loca2_mwbm()], which makes the input files.
+#' @examplesIf interactive() && dir.exists(wavacore::wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies"))
+#' # Reads the processed precipitation files for both periods (several GB),
+#' # so it takes several minutes even for one park
+#' ws <- wavacore::get_wsd(park = "ZION")
+#' timing_exp <- calc_precip_timing_exposure(ws,
+#'                                           historical = c(1980, 2010),
+#'                                           future = c(2035, 2065))
+#' timing_exp
+
 calc_precip_timing_exposure <- function(water_supplies,
                                         precip_data = wavacore::wava_data_path("rapid", "inputs", "loca2_precipitation_water_supplies/"),
                                         hindcast = TRUE,
