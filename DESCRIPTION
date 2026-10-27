@@ -51,5 +51,7 @@ Imports:
     trend,
     wavacore
 Suggests: 
-    testthat
+    curl,
+    testthat,
+    withr
 Config/testthat/edition: 3
