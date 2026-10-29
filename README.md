@@ -2,8 +2,7 @@
 
 Indicator functions for the rapid, nationwide Water Vulnerability Analytics
 (WaVA) water supply vulnerability assessment of National Park Service (NPS)
-units. The outputs feed the
-[WSVA app](https://github.com/Water-Vulnerability-Analytics/nps_wsva_app).
+units.
 
 ## What is in it
 
